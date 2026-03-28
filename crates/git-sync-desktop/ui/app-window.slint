@@ -1,0 +1,69 @@
+import { VerticalBox, TabWidget } from "std-widgets.slint";
+import { HeaderBar } from "header.slint";
+import { StatusTab } from "status-tab.slint";
+import { SettingsTab } from "settings-tab.slint";
+import { DesktopConfig, SyncStatus } from "config-types.slint";
+
+export { DesktopConfig, SyncStatus }
+
+export component AppWindow inherits Window {
+    title: "git-sync";
+    min-width: 560px;
+    min-height: 520px;
+
+    // ── Status properties (written from Rust) ─────────────────────────────────
+    in property <string> sync-state-label: "Loading…";
+    in property <SyncStatus> sync-status: SyncStatus.Unknown;
+    in property <string> repo-state-label: "Unknown";
+    in property <string> last-sync-label: "Never";
+    in property <string> error-message: "";
+
+    // ── Config (two-way bound to Settings fields) ──────────────────────────────
+    in-out property <DesktopConfig> config: {
+        remote: "origin",
+        interval: 60,
+        sync-new-files: true,
+        conflict-branch: true,
+    };
+
+    // ── Callbacks ─────────────────────────────────────────────────────────────
+    callback sync-now();
+    callback save-config();
+    callback browse-repo();
+
+    VerticalBox {
+        padding: 0px;
+        spacing: 0px;
+
+        HeaderBar {
+            sync-state-label: root.sync-state-label;
+            sync-status: root.sync-status;
+        }
+
+        TabWidget {
+            vertical-stretch: 1;
+
+            Tab {
+                title: "Status";
+                StatusTab {
+                    sync-state-label: root.sync-state-label;
+                    sync-status: root.sync-status;
+                    repo-state-label: root.repo-state-label;
+                    last-sync-label: root.last-sync-label;
+                    error-message: root.error-message;
+                    config: root.config;
+                    sync-now => { root.sync-now(); }
+                }
+            }
+
+            Tab {
+                title: "Settings";
+                SettingsTab {
+                    config <=> root.config;
+                    browse-repo => { root.browse-repo(); }
+                    save-config => { root.save-config(); }
+                }
+            }
+        }
+    }
+}

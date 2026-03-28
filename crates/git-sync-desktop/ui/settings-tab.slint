@@ -1,0 +1,139 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox, CheckBox, LineEdit, SpinBox } from "std-widgets.slint";
+import { DesktopConfig } from "config-types.slint";
+
+export component SettingsTab inherits VerticalBox {
+    padding: 20px;
+    spacing: 16px;
+
+    in-out property <DesktopConfig> config;
+
+    callback browse-repo();
+    callback save-config();
+
+    GroupBox {
+        title: "Repository";
+        vertical-stretch: 0;
+
+        VerticalBox {
+            spacing: 6px;
+
+            HorizontalBox {
+                spacing: 8px;
+                vertical-stretch: 0;
+                Text {
+                    text: "Path:";
+                    font-size: 13px;
+                    min-width: 150px;
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text <=> root.config.repo-path;
+                    placeholder-text: "/path/to/your/repo";
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Browse…";
+                    clicked => { root.browse-repo(); }
+                }
+            }
+
+            HorizontalBox {
+                spacing: 8px;
+                vertical-stretch: 0;
+                Text {
+                    text: "Remote:";
+                    font-size: 13px;
+                    min-width: 150px;
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text <=> root.config.remote;
+                    placeholder-text: "origin";
+                    horizontal-stretch: 1;
+                }
+            }
+
+            HorizontalBox {
+                spacing: 8px;
+                vertical-stretch: 0;
+                Text {
+                    text: "Branch:";
+                    font-size: 13px;
+                    min-width: 150px;
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text <=> root.config.branch;
+                    placeholder-text: "(auto-detect from HEAD)";
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+
+    GroupBox {
+        title: "Sync Behaviour";
+        vertical-stretch: 0;
+
+        VerticalBox {
+            spacing: 6px;
+
+            HorizontalBox {
+                spacing: 8px;
+                vertical-stretch: 0;
+                Text {
+                    text: "Interval (seconds):";
+                    font-size: 13px;
+                    min-width: 150px;
+                    vertical-alignment: center;
+                }
+                SpinBox {
+                    value <=> root.config.interval;
+                    minimum: 10;
+                    maximum: 3600;
+                }
+            }
+
+            CheckBox {
+                text: "Sync new (untracked) files";
+                checked <=> root.config.sync-new-files;
+                vertical-stretch: 0;
+            }
+
+            CheckBox {
+                text: "Skip git hooks on commit";
+                checked <=> root.config.skip-hooks;
+                vertical-stretch: 0;
+            }
+
+            CheckBox {
+                text: "Create conflict branch on merge conflict";
+                checked <=> root.config.conflict-branch;
+                vertical-stretch: 0;
+            }
+
+            HorizontalBox {
+                spacing: 8px;
+                vertical-stretch: 0;
+                Text {
+                    text: "Commit message:";
+                    font-size: 13px;
+                    min-width: 150px;
+                    vertical-alignment: center;
+                }
+                LineEdit {
+                    text <=> root.config.commit-message;
+                    placeholder-text: "git-sync: auto-commit";
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+
+    Button {
+        text: "Save Settings";
+        clicked => { root.save-config(); }
+    }
+
+    Rectangle { vertical-stretch: 1; }
+}
