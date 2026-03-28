@@ -1,0 +1,64 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "git-sync";
+    min-width: 480px;
+    min-height: 360px;
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 16px;
+
+        Text {
+            text: "git-sync";
+            font-size: 28px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "Git repository synchronization";
+            font-size: 13px;
+            color: #888888;
+            horizontal-alignment: center;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #dddddd;
+        }
+
+        GroupBox {
+            title: "Status";
+
+            VerticalBox {
+                spacing: 8px;
+
+                HorizontalBox {
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: #4CAF50;
+                    }
+
+                    Text {
+                        text: "Idle — no sync in progress";
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        VerticalBox {
+            spacing: 8px;
+
+            Button {
+                text: "Sync Now";
+            }
+        }
+    }
+}

@@ -1,0 +1,14 @@
+[package]
+name = "git-sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+slint = "1"
+tray-icon = "0.19"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[build-dependencies]
+slint-build = "1"
