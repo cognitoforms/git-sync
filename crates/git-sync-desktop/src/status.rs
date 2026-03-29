@@ -1,4 +1,4 @@
-use git_sync_rs::{RepositoryState, SyncState};
+use git_sync_lib::{RepositoryState, SyncState};
 
 #[derive(Clone)]
 pub struct AppStatus {

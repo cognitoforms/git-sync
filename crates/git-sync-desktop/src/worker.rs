@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use git_sync_rs::{RepositorySynchronizer, SyncConfig, WatchConfig, WatchManager};
+use git_sync_lib::{SyncConfig, WatchConfig, WatchManager};
 
 use crate::config::DesktopConfig;
 use crate::status::{AppStatus, repo_state_label, sync_state_id, sync_state_label};
@@ -29,8 +29,6 @@ fn build_watch_config(cfg: &DesktopConfig) -> WatchConfig {
         min_interval_ms: 5_000,
         sync_on_start: true,
         dry_run: false,
-        enable_tray: false,
-        tray_icon: None,
         periodic_sync_interval_ms: Some(cfg.interval_secs * 1_000),
     }
 }
@@ -81,51 +79,44 @@ async fn run_bg_async(
             build_watch_config(&cfg),
         );
 
-        let status_sync = RepositorySynchronizer::new_with_detected_branch(
-            std::path::Path::new(&cfg.repo_path),
-            build_sync_config(&cfg),
-        );
-        match &status_sync {
-            Ok(_) => status.lock().unwrap().error = None,
-            Err(e) => {
-                let mut s = status.lock().unwrap();
-                s.error = Some(format!("Cannot open repository: {}", e));
-                s.sync_state_label = "Repository error".to_string();
-                s.sync_state_id = "error".to_string();
-            }
+        // Obtain a status handle before moving `wm` into the watch task.
+        let wm_status = wm.status_handle();
+
+        {
+            let mut s = status.lock().unwrap();
+            s.error = None;
         }
 
         let status_poll = Arc::clone(&status);
         let poll_handle = tokio::task::spawn_local(async move {
-            let sync = status_sync.ok();
             let mut prev_state_id = String::new();
             loop {
                 tokio::time::sleep(Duration::from_millis(500)).await;
 
+                let snap = wm_status.snapshot();
                 let mut s = status_poll.lock().unwrap();
-                if let Some(ref r) = sync {
-                    match r.get_sync_state() {
-                        Ok(st) => {
-                            let new_id = sync_state_id(&st).to_string();
-                            if new_id == "equal"
-                                && !prev_state_id.is_empty()
-                                && prev_state_id != "equal"
-                            {
-                                s.last_sync_time = Some(std::time::Instant::now());
-                            }
-                            prev_state_id = new_id.clone();
-                            s.sync_state_label = sync_state_label(&st);
-                            s.sync_state_id = new_id;
-                        }
-                        Err(e) => {
-                            s.sync_state_label = format!("Error: {}", e);
-                            s.sync_state_id = "error".to_string();
-                        }
+
+                if snap.is_syncing {
+                    s.sync_state_label = "Syncing…".to_string();
+                    s.sync_state_id = "syncing".to_string();
+                } else if let Some(ref st) = snap.last_sync_state {
+                    let new_id = sync_state_id(st).to_string();
+                    if new_id == "equal"
+                        && !prev_state_id.is_empty()
+                        && prev_state_id != "equal"
+                    {
+                        s.last_sync_time = Some(std::time::Instant::now());
                     }
-                    if let Ok(st) = r.get_repository_state() {
-                        s.repo_state_label = repo_state_label(&st).to_string();
-                    }
+                    prev_state_id = new_id.clone();
+                    s.sync_state_label = sync_state_label(st);
+                    s.sync_state_id = new_id;
                 }
+
+                if let Some(ref rs) = snap.last_repo_state {
+                    s.repo_state_label = repo_state_label(rs).to_string();
+                }
+
+                s.error = snap.last_error.clone();
             }
         });
 

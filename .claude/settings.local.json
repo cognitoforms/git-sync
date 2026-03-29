@@ -8,7 +8,9 @@
       "Bash(cargo clippy:*)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Read(//c/Users/MichaelThomas/.cargo/registry/src/**)",
+      "Bash(cargo test:*)"
     ]
   }
 }

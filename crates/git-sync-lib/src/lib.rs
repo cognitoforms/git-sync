@@ -1,14 +1,14 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod config;
+pub mod error;
+pub mod sync;
+pub mod watch;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use config::{Config, ConfigLoader, DefaultConfig, RepositoryConfig};
+pub use error::{Result, SyncError};
+pub use sync::{
+    CommandGitTransport, CommitOutcome, FallbackState, GitTransport, RepositoryState,
+    RepositorySynchronizer, SyncConfig, SyncState, UnhandledFileState, FALLBACK_BRANCH_PREFIX,
+};
+pub use watch::{
+    watch_with_periodic_sync, WatchConfig, WatchManager, WatchStatusHandle, WatchStatusSnapshot,
+};
