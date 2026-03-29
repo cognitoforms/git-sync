@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
-pub struct DesktopConfig {
+pub struct RepoConfig {
+    pub name: String,
     pub repo_path: String,
     pub remote: String,
     pub branch: String,
@@ -16,9 +17,10 @@ pub struct DesktopConfig {
     pub commit_message: String,
 }
 
-impl Default for DesktopConfig {
+impl Default for RepoConfig {
     fn default() -> Self {
         Self {
+            name: String::new(),
             repo_path: String::new(),
             remote: "origin".to_string(),
             branch: String::new(),
@@ -29,6 +31,25 @@ impl Default for DesktopConfig {
             commit_message: String::new(),
         }
     }
+}
+
+impl RepoConfig {
+    /// Display name: explicit name if set, otherwise the last path component.
+    pub fn display_name(&self) -> String {
+        if !self.name.is_empty() {
+            return self.name.clone();
+        }
+        std::path::Path::new(&self.repo_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&self.repo_path)
+            .to_string()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DesktopConfig {
+    pub repositories: Vec<RepoConfig>,
 }
 
 fn config_dir() -> PathBuf {

@@ -12,8 +12,8 @@ use gpui::*;
 use gpui_component::{Root, TitleBar};
 use gpui_component_assets::Assets;
 use tray_icon::{
-    TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuItem},
+    TrayIconBuilder, TrayIconEvent,
 };
 
 use config::load_config;
@@ -21,9 +21,15 @@ use state::AppState;
 use status::AppStatus;
 use tray::create_tray_icon;
 use ui::AppWindow;
-use worker::{BgCmd, run_background};
+use worker::{run_background, BgCmd};
 
 fn main() {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .pretty()
+        .init();
+
     #[cfg(target_os = "linux")]
     gtk::init().expect("Failed to initialize GTK");
 
@@ -71,8 +77,7 @@ fn main() {
                         ..Default::default()
                     },
                     |window, cx| {
-                        let view =
-                            cx.new(|cx| AppWindow::new(state_task.clone(), window, cx));
+                        let view = cx.new(|cx| AppWindow::new(state_task.clone(), window, cx));
                         cx.new(|cx| Root::new(view, window, cx))
                     },
                 )?;

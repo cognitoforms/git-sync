@@ -1,4 +1,4 @@
-use gpui::*;
+use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
@@ -7,11 +7,15 @@ use gpui_component::{
 };
 
 use super::file_browser_field::FileBrowserField;
-use crate::config::DesktopConfig;
+use super::nav_state::{NavRequest, NavState};
+use crate::config::RepoConfig;
 use crate::state::AppState;
 
-pub struct SettingsTab {
+pub struct RepoSettingsView {
     state: Entity<AppState>,
+    nav: Entity<NavState>,
+    idx: Option<usize>,
+    name: Entity<InputState>,
     repo_path: Entity<FileBrowserField>,
     remote: Entity<InputState>,
     branch: Entity<InputState>,
@@ -20,14 +24,25 @@ pub struct SettingsTab {
     sync_new_files: bool,
     skip_hooks: bool,
     conflict_branch: bool,
-    _sub: Subscription,
 }
 
-impl SettingsTab {
-    pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let cfg = state.read(cx).config.clone();
-        let sub = cx.observe(&state, |_, _entity, cx| cx.notify());
+impl RepoSettingsView {
+    pub fn new(
+        state: Entity<AppState>,
+        nav: Entity<NavState>,
+        idx: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let cfg = idx
+            .and_then(|i| state.read(cx).config.repositories.get(i).cloned())
+            .unwrap_or_default();
 
+        let name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(cfg.name.clone())
+                .placeholder("(auto-derived from path)")
+        });
         let repo_path = cx.new(|cx| {
             FileBrowserField::new(window, cx, cfg.repo_path.clone(), "/path/to/your/repo")
         });
@@ -41,8 +56,9 @@ impl SettingsTab {
                 .default_value(cfg.branch.clone())
                 .placeholder("(auto-detect from HEAD)")
         });
-        let interval_secs =
-            cx.new(|cx| InputState::new(window, cx).default_value(cfg.interval_secs.to_string()));
+        let interval_secs = cx.new(|cx| {
+            InputState::new(window, cx).default_value(cfg.interval_secs.to_string())
+        });
         let commit_message = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(cfg.commit_message.clone())
@@ -51,6 +67,9 @@ impl SettingsTab {
 
         Self {
             state,
+            nav,
+            idx,
+            name,
             repo_path,
             remote,
             branch,
@@ -59,20 +78,29 @@ impl SettingsTab {
             sync_new_files: cfg.sync_new_files,
             skip_hooks: cfg.skip_hooks,
             conflict_branch: cfg.conflict_branch,
-            _sub: sub,
         }
     }
 
-    fn collect_config(&self, cx: &App) -> DesktopConfig {
-        DesktopConfig {
-            repo_path: self.repo_path.read(cx).value(cx),
+    fn collect_config(&self, cx: &App) -> RepoConfig {
+        let repo_path = self.repo_path.read(cx).value(cx);
+        let name_input = self.name.read(cx).value().to_string();
+        let name = if name_input.is_empty() {
+            // Derive from last path component
+            std::path::Path::new(&repo_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string()
+        } else {
+            name_input
+        };
+
+        RepoConfig {
+            name,
+            repo_path,
             remote: {
                 let r = self.remote.read(cx).value().to_string();
-                if r.is_empty() {
-                    "origin".to_string()
-                } else {
-                    r
-                }
+                if r.is_empty() { "origin".to_string() } else { r }
             },
             branch: self.branch.read(cx).value().to_string(),
             interval_secs: self
@@ -90,14 +118,32 @@ impl SettingsTab {
     }
 }
 
-impl Render for SettingsTab {
+impl Render for RepoSettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let state = self.state.clone();
+        let state_save = self.state.clone();
+        let nav_save = self.nav.clone();
+        let state_del = self.state.clone();
+        let nav_del = self.nav.clone();
+        let idx = self.idx;
 
         v_flex()
+            .id("repo-settings-scroll")
             .gap_3()
             .p_4()
             .size_full()
+            .overflow_y_scroll()
+            // Name
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(hsla(0.0, 0.0, 0.5, 1.0))
+                            .child("Name (optional)"),
+                    )
+                    .child(Input::new(&self.name)),
+            )
             // Repo path + Browse
             .child(self.repo_path.clone())
             // Remote
@@ -186,9 +232,28 @@ impl Render for SettingsTab {
                     .label("Save Settings")
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        let new_cfg = this.collect_config(cx);
-                        state.update(cx, |s, _| s.save_and_reconfigure(new_cfg));
+                        let cfg = this.collect_config(cx);
+                        state_save.update(cx, |s, _| match idx {
+                            Some(i) => s.save_repo(i, cfg),
+                            None => s.add_repo(cfg),
+                        });
+                        nav_save.update(cx, |n, cx| { n.request = Some(NavRequest::Back); cx.notify(); });
                     })),
             )
+            // Delete button (only for existing repos)
+            .when(idx.is_some(), |el: gpui::Stateful<gpui::Div>| {
+                el.child(
+                    Button::new("delete")
+                        .ghost()
+                        .label("Delete Repository")
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            if let Some(i) = idx {
+                                state_del.update(cx, |s, _| s.delete_repo(i));
+                                nav_del.update(cx, |n, cx| { n.request = Some(NavRequest::Back); cx.notify(); });
+                            }
+                        })),
+                )
+            })
     }
 }

@@ -2,16 +2,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use git_sync_lib::{SyncConfig, WatchConfig, WatchManager};
+use tokio::task::AbortHandle;
 
-use crate::config::DesktopConfig;
-use crate::status::{AppStatus, repo_state_label, sync_state_id, sync_state_label};
+use crate::config::{DesktopConfig, RepoConfig};
+use crate::status::{AppStatus, RepoStatus, repo_state_label, sync_state_id, sync_state_label};
 
 pub enum BgCmd {
-    SyncNow,
+    SyncNow(usize),
     Reconfigure(DesktopConfig),
 }
 
-fn build_sync_config(cfg: &DesktopConfig) -> SyncConfig {
+fn build_sync_config(cfg: &RepoConfig) -> SyncConfig {
     SyncConfig {
         sync_new_files: cfg.sync_new_files,
         skip_hooks: cfg.skip_hooks,
@@ -23,7 +24,7 @@ fn build_sync_config(cfg: &DesktopConfig) -> SyncConfig {
     }
 }
 
-fn build_watch_config(cfg: &DesktopConfig) -> WatchConfig {
+fn build_watch_config(cfg: &RepoConfig) -> WatchConfig {
     WatchConfig {
         debounce_ms: 500,
         min_interval_ms: 5_000,
@@ -54,94 +55,167 @@ async fn run_bg_async(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<BgCmd>,
 ) {
     'outer: loop {
-        if cfg.repo_path.is_empty() {
-            {
-                let mut s = status.lock().unwrap();
-                s.sync_state_label = "No repository configured".to_string();
-                s.sync_state_id = "unknown".to_string();
-                s.repo_state_label = "—".to_string();
-            }
-            loop {
-                match rx.recv().await {
-                    Some(BgCmd::Reconfigure(new_cfg)) => {
-                        cfg = new_cfg;
-                        continue 'outer;
+        // Initialise status slots to match current config length.
+        {
+            let mut s = status.lock().unwrap();
+            s.repos = cfg
+                .repositories
+                .iter()
+                .map(|r| RepoStatus::new_loading(r.repo_path.clone()))
+                .collect();
+        }
+
+        let mut task_handles: Vec<AbortHandle> = Vec::new();
+        let mut join_set: tokio::task::JoinSet<usize> = tokio::task::JoinSet::new();
+
+        for (idx, repo_cfg) in cfg.repositories.iter().enumerate() {
+            let handle = spawn_repo_task(idx, repo_cfg, Arc::clone(&status), &mut join_set);
+            task_handles.push(handle);
+        }
+
+        loop {
+            tokio::select! {
+                Some(result) = join_set.join_next() => {
+                    // A task exited (error or EOF). Respawn it after a brief delay.
+                    let idx = match result {
+                        Ok(i) => i,
+                        Err(_) => continue, // cancelled — ignore
+                    };
+                    if let Some(repo_cfg) = cfg.repositories.get(idx) {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        let handle = spawn_repo_task(idx, repo_cfg, Arc::clone(&status), &mut join_set);
+                        if idx < task_handles.len() {
+                            task_handles[idx] = handle;
+                        }
                     }
-                    Some(BgCmd::SyncNow) => {}
-                    None => return,
+                }
+                cmd = rx.recv() => {
+                    match cmd {
+                        Some(BgCmd::Reconfigure(new_cfg)) => {
+                            for h in &task_handles { h.abort(); }
+                            cfg = new_cfg;
+                            continue 'outer;
+                        }
+                        Some(BgCmd::SyncNow(idx)) => {
+                            // Abort only that repo's task; it will be respawned
+                            // immediately by the join_next arm above. We abort here
+                            // and also directly respawn to skip the 2-second delay.
+                            if let Some(handle) = task_handles.get(idx) {
+                                handle.abort();
+                            }
+                            if let Some(repo_cfg) = cfg.repositories.get(idx) {
+                                // Small yield so the abort is processed first.
+                                tokio::task::yield_now().await;
+                                let handle = spawn_repo_task(idx, repo_cfg, Arc::clone(&status), &mut join_set);
+                                if idx < task_handles.len() {
+                                    task_handles[idx] = handle;
+                                }
+                            }
+                        }
+                        None => return,
+                    }
                 }
             }
         }
+    }
+}
 
-        let wm = WatchManager::new(
-            &cfg.repo_path,
-            build_sync_config(&cfg),
-            build_watch_config(&cfg),
-        );
+/// Spawn an async task that manages a single repository. Returns the AbortHandle.
+fn spawn_repo_task(
+    idx: usize,
+    repo_cfg: &RepoConfig,
+    status: Arc<Mutex<AppStatus>>,
+    join_set: &mut tokio::task::JoinSet<usize>,
+) -> AbortHandle {
+    let repo_cfg = repo_cfg.clone();
 
-        // Obtain a status handle before moving `wm` into the watch task.
-        let wm_status = wm.status_handle();
+    join_set.spawn_local(async move {
+        run_repo(idx, &repo_cfg, status).await;
+        idx
+    })
+}
 
-        {
-            let mut s = status.lock().unwrap();
-            s.error = None;
+async fn run_repo(idx: usize, cfg: &RepoConfig, status: Arc<Mutex<AppStatus>>) {
+    if cfg.repo_path.is_empty() {
+        status.lock().unwrap().repos.get_mut(idx).map(|s| {
+            *s = RepoStatus::new_unconfigured(cfg.repo_path.clone());
+        });
+        // Park until aborted.
+        std::future::pending::<()>().await;
+        return;
+    }
+
+    let wm = WatchManager::new(
+        &cfg.repo_path,
+        build_sync_config(cfg),
+        build_watch_config(cfg),
+    );
+
+    let wm_status = wm.status_handle();
+
+    {
+        if let Ok(mut s) = status.lock() {
+            if let Some(rs) = s.repos.get_mut(idx) {
+                rs.error = None;
+            }
         }
+    }
 
-        let status_poll = Arc::clone(&status);
-        let poll_handle = tokio::task::spawn_local(async move {
-            let mut prev_state_id = String::new();
-            loop {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+    let status_poll = Arc::clone(&status);
+    let poll_handle = tokio::task::spawn_local(async move {
+        let mut prev_state_id = String::new();
+        loop {
+            tokio::time::sleep(Duration::from_millis(500)).await;
 
-                let snap = wm_status.snapshot();
-                let mut s = status_poll.lock().unwrap();
+            let snap = wm_status.snapshot();
+            let mut s = status_poll.lock().unwrap();
+            let Some(rs) = s.repos.get_mut(idx) else { break };
 
-                if snap.is_syncing {
-                    s.sync_state_label = "Syncing…".to_string();
-                    s.sync_state_id = "syncing".to_string();
-                } else if let Some(ref st) = snap.last_sync_state {
+            if snap.is_syncing {
+                rs.sync_state_label = "Syncing…".to_string();
+                rs.sync_state_id = "syncing".to_string();
+                rs.is_syncing = true;
+            } else {
+                rs.is_syncing = false;
+                if let Some(ref st) = snap.last_sync_state {
                     let new_id = sync_state_id(st).to_string();
                     if new_id == "equal"
                         && !prev_state_id.is_empty()
                         && prev_state_id != "equal"
                     {
-                        s.last_sync_time = Some(std::time::Instant::now());
+                        rs.last_sync_time = Some(std::time::Instant::now());
                     }
                     prev_state_id = new_id.clone();
-                    s.sync_state_label = sync_state_label(st);
-                    s.sync_state_id = new_id;
+                    rs.sync_state_label = sync_state_label(st);
+                    rs.sync_state_id = new_id;
                 }
-
-                if let Some(ref rs) = snap.last_repo_state {
-                    s.repo_state_label = repo_state_label(rs).to_string();
-                }
-
-                s.error = snap.last_error.clone();
             }
-        });
 
-        let mut watch_handle = tokio::task::spawn_local(async move { wm.watch().await });
-
-        tokio::select! {
-            result = &mut watch_handle => {
-                poll_handle.abort();
-                if let Ok(Err(e)) = result {
-                    status.lock().unwrap().error = Some(e.to_string());
-                }
-                continue 'outer;
+            if let Some(ref repo_st) = snap.last_repo_state {
+                rs.repo_state_label = repo_state_label(repo_st).to_string();
             }
-            cmd = rx.recv() => {
-                watch_handle.abort();
-                poll_handle.abort();
-                match cmd {
-                    Some(BgCmd::SyncNow) => continue 'outer,
-                    Some(BgCmd::Reconfigure(new_cfg)) => {
-                        cfg = new_cfg;
-                        continue 'outer;
+
+            rs.error = snap.last_error.clone();
+        }
+    });
+
+    let mut watch_handle = tokio::task::spawn_local(async move { wm.watch().await });
+
+    tokio::select! {
+        result = &mut watch_handle => {
+            poll_handle.abort();
+            if let Ok(Err(e)) = result {
+                if let Ok(mut s) = status.lock() {
+                    if let Some(rs) = s.repos.get_mut(idx) {
+                        rs.error = Some(e.to_string());
                     }
-                    None => return,
                 }
             }
+        }
+        _ = std::future::pending::<()>() => {
+            // This arm never fires — task is cancelled externally via AbortHandle.
+            watch_handle.abort();
+            poll_handle.abort();
         }
     }
 }

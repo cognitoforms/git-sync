@@ -1,19 +1,33 @@
 use git_sync_lib::{RepositoryState, SyncState};
 
-#[derive(Clone)]
-pub struct AppStatus {
+#[derive(Clone, Debug)]
+pub struct RepoStatus {
+    #[allow(dead_code)]
+    pub repo_path: String,
     pub sync_state_label: String,
     pub sync_state_id: String,
     pub repo_state_label: String,
-    #[allow(dead_code)]
     pub is_syncing: bool,
     pub error: Option<String>,
     pub last_sync_time: Option<std::time::Instant>,
 }
 
-impl Default for AppStatus {
-    fn default() -> Self {
+impl RepoStatus {
+    pub fn new_unconfigured(repo_path: String) -> Self {
         Self {
+            repo_path,
+            sync_state_label: "No repository configured".to_string(),
+            sync_state_id: "unknown".to_string(),
+            repo_state_label: "—".to_string(),
+            is_syncing: false,
+            error: None,
+            last_sync_time: None,
+        }
+    }
+
+    pub fn new_loading(repo_path: String) -> Self {
+        Self {
+            repo_path,
             sync_state_label: "Loading…".to_string(),
             sync_state_id: "unknown".to_string(),
             repo_state_label: "Unknown".to_string(),
@@ -22,6 +36,11 @@ impl Default for AppStatus {
             last_sync_time: None,
         }
     }
+}
+
+#[derive(Clone, Default)]
+pub struct AppStatus {
+    pub repos: Vec<RepoStatus>,
 }
 
 pub fn sync_state_label(s: &SyncState) -> String {
