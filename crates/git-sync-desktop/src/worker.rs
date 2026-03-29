@@ -36,8 +36,7 @@ fn build_watch_config(cfg: &DesktopConfig) -> WatchConfig {
 }
 
 /// Entry point for the background thread — creates a single-threaded tokio
-/// runtime and drives the async worker inside a `LocalSet` (required because
-/// `git2::Repository` is `!Sync`).
+/// runtime and drives the async worker inside a `LocalSet`.
 pub fn run_background(
     initial_cfg: DesktopConfig,
     status: Arc<Mutex<AppStatus>>,
@@ -66,7 +65,10 @@ async fn run_bg_async(
             }
             loop {
                 match rx.recv().await {
-                    Some(BgCmd::Reconfigure(new_cfg)) => { cfg = new_cfg; continue 'outer; }
+                    Some(BgCmd::Reconfigure(new_cfg)) => {
+                        cfg = new_cfg;
+                        continue 'outer;
+                    }
                     Some(BgCmd::SyncNow) => {}
                     None => return,
                 }

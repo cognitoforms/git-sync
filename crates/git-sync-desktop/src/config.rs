@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::slint_generatedAppWindow;
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct DesktopConfig {
@@ -29,21 +27,6 @@ impl Default for DesktopConfig {
             skip_hooks: false,
             conflict_branch: true,
             commit_message: String::new(),
-        }
-    }
-}
-
-impl From<DesktopConfig> for slint_generatedAppWindow::DesktopConfig {
-    fn from(val: DesktopConfig) -> Self {
-        slint_generatedAppWindow::DesktopConfig {
-            repo_path: val.repo_path.clone().into(),
-            remote: val.remote.clone().into(),
-            branch: val.branch.clone().into(),
-            interval: val.interval_secs as i32,
-            sync_new_files: val.sync_new_files,
-            skip_hooks: val.skip_hooks,
-            conflict_branch: val.conflict_branch,
-            commit_message: val.commit_message.clone().into(),
         }
     }
 }

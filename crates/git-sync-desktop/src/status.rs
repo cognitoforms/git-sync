@@ -1,9 +1,11 @@
 use git_sync_rs::{RepositoryState, SyncState};
 
+#[derive(Clone)]
 pub struct AppStatus {
     pub sync_state_label: String,
     pub sync_state_id: String,
     pub repo_state_label: String,
+    #[allow(dead_code)]
     pub is_syncing: bool,
     pub error: Option<String>,
     pub last_sync_time: Option<std::time::Instant>,
@@ -63,8 +65,13 @@ pub fn format_last_sync(t: Option<std::time::Instant>) -> String {
         return "Never".to_string();
     };
     let secs = instant.elapsed().as_secs();
-    if secs < 5 { "Just now".to_string() }
-    else if secs < 60 { format!("{} seconds ago", secs) }
-    else if secs < 3600 { format!("{} minute(s) ago", secs / 60) }
-    else { format!("{} hour(s) ago", secs / 3600) }
+    if secs < 5 {
+        "Just now".to_string()
+    } else if secs < 60 {
+        format!("{} seconds ago", secs)
+    } else if secs < 3600 {
+        format!("{} minute(s) ago", secs / 60)
+    } else {
+        format!("{} hour(s) ago", secs / 3600)
+    }
 }
