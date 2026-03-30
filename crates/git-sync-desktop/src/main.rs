@@ -108,6 +108,7 @@ fn main() {
                 .with_tooltip("git-sync")
                 .with_icon(create_tray_icon())
                 .with_menu(Box::new(tray_menu))
+                .with_menu_on_left_click(false)
                 .build()
                 .expect("failed to build system tray icon");
             let quit_id = quit_item.id().clone();
@@ -135,21 +136,27 @@ fn main() {
             .detach();
 
             cx.spawn(async move |cx| {
-                let window = cx.open_window(
-                    WindowOptions {
-                        titlebar: Some(TitleBar::title_bar_options()),
-                        window_min_size: Some(size(px(520.), px(440.))),
-                        focus: true,
-                        show: true,
-                        ..Default::default()
-                    },
-                    |window, cx| {
-                        let view = cx.new(|cx| AppWindow::new(state_task.clone(), window, cx));
-                        cx.new(|cx| Root::new(view, window, cx))
-                    },
-                )?;
+                // Move tray into task — keeps TrayIcon alive for app lifetime
+                let _tray = _tray;
 
-                let mut visible = true;
+                let main_window_opts = || WindowOptions {
+                    titlebar: Some(TitleBar::title_bar_options()),
+                    window_min_size: Some(size(px(520.), px(440.))),
+                    focus: true,
+                    show: true,
+                    ..Default::default()
+                };
+
+                let mut window = Some(cx.open_window(
+                    main_window_opts(),
+                    {
+                        let state = state_task.clone();
+                        move |window, cx| {
+                            let view = cx.new(|cx| AppWindow::new(state.clone(), window, cx));
+                            cx.new(|cx| Root::new(view, window, cx))
+                        }
+                    },
+                )?);
 
                 loop {
                     cx.background_executor()
@@ -165,25 +172,41 @@ fn main() {
                     })
                     .ok();
 
-                    // Tray icon click: toggle window visibility
+                    // Detect user-closed window (X button)
+                    if let Some(w) = window {
+                        let alive = cx
+                            .update(|app| app.update_window(w.into(), |_, _, _| {}).is_ok())
+                            .unwrap_or(false);
+                        if !alive {
+                            window = None;
+                        }
+                    }
+
+                    // Tray icon left-click: close if open, reopen if closed
                     while let Ok(TrayIconEvent::Click {
                         button: tray_icon::MouseButton::Left,
                         button_state: tray_icon::MouseButtonState::Up,
                         ..
                     }) = TrayIconEvent::receiver().try_recv()
                     {
-                        cx.update(|app| {
-                            app.update_window(window.into(), |_, win, _| {
-                                if visible {
-                                    win.minimize_window();
-                                } else {
-                                    win.activate_window();
-                                }
+                        if let Some(w) = window.take() {
+                            cx.update(|app| {
+                                app.update_window(w.into(), |_, win, _| win.remove_window()).ok();
                             })
                             .ok();
-                        })
-                        .ok();
-                        visible = !visible;
+                        } else if let Ok(w) = cx.open_window(
+                            main_window_opts(),
+                            {
+                                let state = state_task.clone();
+                                move |window, cx| {
+                                    let view =
+                                        cx.new(|cx| AppWindow::new(state.clone(), window, cx));
+                                    cx.new(|cx| Root::new(view, window, cx))
+                                }
+                            },
+                        ) {
+                            window = Some(w);
+                        }
                     }
 
                     // Tray menu events
