@@ -1,0 +1,29 @@
+[package]
+name = "git-sync-tauri"
+version = "0.1.0"
+description = "Git Sync desktop app (Tauri)"
+edition = "2021"
+
+[lib]
+name = "git_sync_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+git-sync-lib    = { path = "../../git-sync-lib" }
+
+tauri               = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-os     = "2"
+
+serde               = { version = "1", features = ["derive"] }
+serde_json          = "1"
+toml                = "0.8"
+tokio               = { version = "1", features = ["rt", "time", "sync", "macros"] }
+directories         = "6.0.0"
+chrono              = { version = "0.4", features = ["serde"] }
+anyhow              = "1"
+tracing             = "0.1"
+tracing-subscriber  = { version = "0.3", features = ["env-filter"] }
