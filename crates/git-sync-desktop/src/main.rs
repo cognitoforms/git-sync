@@ -12,9 +12,11 @@ use std::time::Duration;
 use gpui::*;
 use gpui_component::{Root, TitleBar};
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
+    menu::{Menu as TrayMenu, MenuEvent, MenuItem as TrayMenuItem},
     TrayIconBuilder, TrayIconEvent,
 };
+
+actions!(git_sync, [Quit, About]);
 
 use config::load_config;
 use state::AppState;
@@ -23,6 +25,22 @@ use tray::create_tray_icon;
 use ui::AppWindow;
 use worker::{run_background, BgCmd};
 use tokio::sync::watch;
+
+struct AboutWindow;
+
+impl Render for AboutWindow {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(div().text_xl().font_weight(FontWeight::BOLD).child("git-sync"))
+            .child(div().text_sm().child(format!("Version {}", env!("CARGO_PKG_VERSION"))))
+    }
+}
 
 fn main() {
     // Initialize logging
@@ -54,9 +72,37 @@ fn main() {
             // Shared state entity
             let state = cx.new(|_| AppState::new(config.clone(), tx.clone()));
 
+            // Register action handlers
+            cx.on_action(|_: &Quit, cx| cx.quit());
+            cx.on_action(|_: &About, cx| {
+                cx.open_window(
+                    WindowOptions {
+                        focus: true,
+                        show: true,
+                        window_min_size: Some(size(px(320.), px(180.))),
+                        ..Default::default()
+                    },
+                    |window, cx| {
+                        let view = cx.new(|_| AboutWindow);
+                        cx.new(|cx| Root::new(view, window, cx))
+                    },
+                )
+                .ok();
+            });
+
+            // Set app menu bar
+            cx.set_menus(vec![Menu {
+                name: "git-sync".into(),
+                items: vec![
+                    MenuItem::action("About git-sync", About),
+                    MenuItem::separator(),
+                    MenuItem::action("Quit git-sync", Quit),
+                ],
+            }]);
+
             // System tray
-            let quit_item = MenuItem::new("Quit git-sync", true, None);
-            let tray_menu = Menu::new();
+            let quit_item = TrayMenuItem::new("Quit git-sync", true, None);
+            let tray_menu = TrayMenu::new();
             tray_menu.append(&quit_item).expect("failed to append tray menu item");
             let _tray = TrayIconBuilder::new()
                 .with_tooltip("git-sync")
