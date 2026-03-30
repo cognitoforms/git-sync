@@ -10,5 +10,5 @@ pub use sync::{
     RepositorySynchronizer, SyncConfig, SyncState, UnhandledFileState, FALLBACK_BRANCH_PREFIX,
 };
 pub use watch::{
-    watch_with_periodic_sync, WatchConfig, WatchManager, WatchStatusHandle, WatchStatusSnapshot,
+    watch_with_periodic_sync, WatchCmd, WatchConfig, WatchHandle, WatchManager, WatchStatusSnapshot,
 };
