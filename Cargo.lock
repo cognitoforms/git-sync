@@ -2266,6 +2266,7 @@ dependencies = [
  "gpui-component-assets",
  "gtk",
  "rfd",
+ "rust-embed",
  "serde",
  "tokio",
  "toml 0.8.23",

@@ -21,6 +21,7 @@ directories   = "6.0.0"
 anyhow        = "1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+rust-embed = "8.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

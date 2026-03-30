@@ -1,3 +1,4 @@
+mod assets;
 mod config;
 mod state;
 mod status;
@@ -10,7 +11,6 @@ use std::time::Duration;
 
 use gpui::*;
 use gpui_component::{Root, TitleBar};
-use gpui_component_assets::Assets;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     TrayIconBuilder, TrayIconEvent,
@@ -45,7 +45,7 @@ fn main() {
     }
 
     Application::new()
-        .with_assets(Assets)
+        .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
 

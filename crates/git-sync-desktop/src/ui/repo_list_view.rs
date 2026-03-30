@@ -3,12 +3,12 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     table::{Column, Table, TableDelegate, TableState},
-    v_flex, ActiveTheme, Sizable,
+    v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
 
 use super::nav_state::{NavRequest, NavState};
-use crate::state::AppState;
 use crate::status::format_last_sync;
+use crate::{state::AppState, ui::icons::CustomIcon};
 
 pub fn dot_color(state_id: &str) -> Hsla {
     match state_id {
@@ -138,7 +138,7 @@ impl TableDelegate for RepoTableDelegate {
                         Button::new(SharedString::from(format!("sync-{row_ix}")))
                             .ghost()
                             .small()
-                            .label("↺")
+                            .icon(CustomIcon::RotateCCW)
                             .cursor_pointer()
                             .on_click(move |_, _, cx| {
                                 state.update(cx, |s, _| s.sync_now(row_ix));
@@ -148,7 +148,7 @@ impl TableDelegate for RepoTableDelegate {
                         Button::new(SharedString::from(format!("settings-{row_ix}")))
                             .ghost()
                             .small()
-                            .label("⚙")
+                            .icon(IconName::Settings)
                             .cursor_pointer()
                             .on_click(move |_, _, cx| {
                                 nav.update(cx, |n, cx| {
@@ -169,13 +169,14 @@ impl TableDelegate for RepoTableDelegate {
         _window: &mut Window,
         _cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        div()
+        v_flex()
             .size_full()
-            .flex()
             .items_center()
             .justify_center()
+            .gap_2()
             .text_color(hsla(0.0, 0.0, 0.5, 1.0))
-            .child("No repositories configured")
+            .child(Icon::new(IconName::FolderOpen).with_size(gpui_component::Size::Large))
+            .child(div().text_sm().child("No repositories configured"))
     }
 }
 
@@ -226,7 +227,7 @@ impl Render for RepoListView {
                 div()
                     .flex_1()
                     .overflow_hidden()
-                    .child(Table::new(&self.table_state).large()),
+                    .child(Table::new(&self.table_state).large().bordered(false)),
             )
             .child(
                 div()
@@ -236,7 +237,8 @@ impl Render for RepoListView {
                     .child(
                         Button::new("add-repo")
                             .ghost()
-                            .label("＋ Add Repository")
+                            .icon(IconName::Plus)
+                            .label("Add Repository")
                             .cursor_pointer()
                             .on_click(move |_, _, cx| {
                                 nav.update(cx, |n, cx| {

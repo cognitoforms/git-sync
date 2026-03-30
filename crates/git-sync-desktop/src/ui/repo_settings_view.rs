@@ -56,9 +56,8 @@ impl RepoSettingsView {
                 .default_value(cfg.branch.clone())
                 .placeholder("(auto-detect from HEAD)")
         });
-        let interval_secs = cx.new(|cx| {
-            InputState::new(window, cx).default_value(cfg.interval_secs.to_string())
-        });
+        let interval_secs =
+            cx.new(|cx| InputState::new(window, cx).default_value(cfg.interval_secs.to_string()));
         let commit_message = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(cfg.commit_message.clone())
@@ -100,7 +99,11 @@ impl RepoSettingsView {
             repo_path,
             remote: {
                 let r = self.remote.read(cx).value().to_string();
-                if r.is_empty() { "origin".to_string() } else { r }
+                if r.is_empty() {
+                    "origin".to_string()
+                } else {
+                    r
+                }
             },
             branch: self.branch.read(cx).value().to_string(),
             interval_secs: self
@@ -125,6 +128,8 @@ impl Render for RepoSettingsView {
         let state_del = self.state.clone();
         let nav_del = self.nav.clone();
         let idx = self.idx;
+
+        let is_existing_repo = idx.is_some();
 
         v_flex()
             .id("repo-settings-scroll")
@@ -237,20 +242,27 @@ impl Render for RepoSettingsView {
                             Some(i) => s.save_repo(i, cfg),
                             None => s.add_repo(cfg),
                         });
-                        nav_save.update(cx, |n, cx| { n.request = Some(NavRequest::Back); cx.notify(); });
+                        nav_save.update(cx, |n, cx| {
+                            n.request = Some(NavRequest::Back);
+                            cx.notify();
+                        });
                     })),
             )
-            // Delete button (only for existing repos)
-            .when(idx.is_some(), |el: gpui::Stateful<gpui::Div>| {
+            // Delete button
+            .when(is_existing_repo, |el: gpui::Stateful<gpui::Div>| {
                 el.child(
                     Button::new("delete")
-                        .ghost()
+                        .danger()
+                        .outline()
                         .label("Delete Repository")
                         .cursor_pointer()
                         .on_click(cx.listener(move |_, _, _, cx| {
                             if let Some(i) = idx {
                                 state_del.update(cx, |s, _| s.delete_repo(i));
-                                nav_del.update(cx, |n, cx| { n.request = Some(NavRequest::Back); cx.notify(); });
+                                nav_del.update(cx, |n, cx| {
+                                    n.request = Some(NavRequest::Back);
+                                    cx.notify();
+                                });
                             }
                         })),
                 )

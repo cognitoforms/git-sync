@@ -1,7 +1,7 @@
 use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, TitleBar,
+    h_flex, v_flex, IconName, TitleBar,
 };
 
 use super::nav_state::{NavRequest, NavState};
@@ -143,7 +143,7 @@ impl Render for AppWindow {
                             el.child(
                                 Button::new("back")
                                     .ghost()
-                                    .label("←")
+                                    .icon(IconName::ArrowLeft)
                                     .cursor_pointer()
                                     .on_click(move |_, _, cx| {
                                         nav.update(cx, |n, cx| {
