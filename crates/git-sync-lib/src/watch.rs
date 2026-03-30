@@ -5,12 +5,10 @@ use crate::error::{Result, SyncError};
 use crate::sync::{RepositoryState, RepositorySynchronizer, SyncConfig, SyncState};
 use async_channel::{Receiver, Sender};
 use futures::channel::oneshot;
-use futures::future::{self, Either};
+use futures::FutureExt;
 use futures_timer::Delay;
 use notify::{Config as NotifyConfig, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -47,30 +45,8 @@ impl Default for WatchConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Shared status state
+// Status snapshot (public)
 // ---------------------------------------------------------------------------
-
-struct WatchStatusInner {
-    is_syncing: AtomicBool,
-    sync_suspended: AtomicBool,
-    last_successful_sync_unix_secs: AtomicI64,
-    last_error: Mutex<Option<String>>,
-    last_sync_state: Mutex<Option<SyncState>>,
-    last_repo_state: Mutex<Option<RepositoryState>>,
-}
-
-impl WatchStatusInner {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            is_syncing: AtomicBool::new(false),
-            sync_suspended: AtomicBool::new(false),
-            last_successful_sync_unix_secs: AtomicI64::new(0),
-            last_error: Mutex::new(None),
-            last_sync_state: Mutex::new(None),
-            last_repo_state: Mutex::new(None),
-        })
-    }
-}
 
 /// A point-in-time snapshot of all watch/sync status fields.
 #[derive(Debug, Clone, Default)]
@@ -85,75 +61,104 @@ pub struct WatchStatusSnapshot {
     pub last_repo_state: Option<RepositoryState>,
 }
 
-/// A cloneable, shareable handle to the [`WatchManager`]'s current status.
-///
-/// Obtain one before calling [`WatchManager::watch()`] via
-/// [`WatchManager::status_handle()`]. The handle can be cloned and passed to UI
-/// threads to observe sync state without requiring access to the manager itself.
-#[derive(Clone)]
-pub struct WatchStatusHandle {
-    inner: Arc<WatchStatusInner>,
+// ---------------------------------------------------------------------------
+// Internal state (lives on the watch() async stack — no Arc, no locks)
+// ---------------------------------------------------------------------------
+
+struct WatchState {
+    is_suspended: bool,
+    is_syncing: bool,
+    last_successful_sync_unix_secs: i64,
+    last_error: Option<String>,
+    last_sync_state: Option<SyncState>,
+    last_repo_state: Option<RepositoryState>,
 }
 
-impl WatchStatusHandle {
-    /// Returns a point-in-time snapshot of all status fields.
-    pub fn snapshot(&self) -> WatchStatusSnapshot {
-        WatchStatusSnapshot {
-            is_syncing: self.is_syncing(),
-            is_suspended: self.is_suspended(),
-            last_successful_sync: self.last_successful_sync(),
-            last_error: self.last_error(),
-            last_sync_state: self.last_sync_state(),
-            last_repo_state: self.last_repo_state(),
+impl Default for WatchState {
+    fn default() -> Self {
+        Self {
+            is_suspended: false,
+            is_syncing: false,
+            last_successful_sync_unix_secs: 0,
+            last_error: None,
+            last_sync_state: None,
+            last_repo_state: None,
         }
     }
+}
 
-    /// Whether a sync is currently in progress.
-    pub fn is_syncing(&self) -> bool {
-        self.inner.is_syncing.load(Ordering::Acquire)
-    }
-
-    /// Whether sync is currently suspended.
-    pub fn is_suspended(&self) -> bool {
-        self.inner.sync_suspended.load(Ordering::Acquire)
-    }
-
-    /// Timestamp of the last successful sync, if any.
-    pub fn last_successful_sync(&self) -> Option<chrono::DateTime<chrono::Local>> {
-        let unix_secs = self
-            .inner
-            .last_successful_sync_unix_secs
-            .load(Ordering::Acquire);
-        if unix_secs <= 0 {
-            return None;
-        }
+impl WatchState {
+    fn snapshot(&self) -> WatchStatusSnapshot {
         use chrono::TimeZone;
-        chrono::Local.timestamp_opt(unix_secs, 0).single()
+        let last_successful_sync = if self.last_successful_sync_unix_secs > 0 {
+            chrono::Local
+                .timestamp_opt(self.last_successful_sync_unix_secs, 0)
+                .single()
+        } else {
+            None
+        };
+        WatchStatusSnapshot {
+            is_syncing: self.is_syncing,
+            is_suspended: self.is_suspended,
+            last_successful_sync,
+            last_error: self.last_error.clone(),
+            last_sync_state: self.last_sync_state.clone(),
+            last_repo_state: self.last_repo_state.clone(),
+        }
     }
+}
 
-    /// Error message from the last failed sync, if any.
-    pub fn last_error(&self) -> Option<String> {
-        self.inner.last_error.lock().unwrap().clone()
-    }
+// ---------------------------------------------------------------------------
+// Commands sent inward from WatchHandle → WatchManager
+// ---------------------------------------------------------------------------
 
-    /// Sync state (local vs remote divergence) as of the last completed sync.
-    pub fn last_sync_state(&self) -> Option<SyncState> {
-        self.inner.last_sync_state.lock().unwrap().clone()
-    }
+/// Commands that callers can send to a running [`WatchManager`] via [`WatchHandle`].
+pub enum WatchCmd {
+    Suspend,
+    Resume,
+    SyncNow,
+}
 
-    /// Repository state (clean, dirty, rebasing, …) as of the last completed sync.
-    pub fn last_repo_state(&self) -> Option<RepositoryState> {
-        self.inner.last_repo_state.lock().unwrap().clone()
+// ---------------------------------------------------------------------------
+// WatchHandle — the public API replacing WatchStatusHandle
+// ---------------------------------------------------------------------------
+
+/// A bidirectional handle to a running [`WatchManager`].
+///
+/// Obtain one before calling [`WatchManager::watch()`] via
+/// [`WatchManager::handle()`].
+///
+/// **MPMC note:** `async_channel` distributes messages across all receivers.
+/// Cloning this handle means the two clones share the update stream — each
+/// snapshot goes to exactly one of them. For the common single-subscriber
+/// pattern this is correct; if you need broadcast semantics, wrap the channel
+/// yourself.
+pub struct WatchHandle {
+    updates: Receiver<WatchStatusSnapshot>,
+    commands: Sender<WatchCmd>,
+}
+
+impl WatchHandle {
+    /// Wait for the next status change.
+    ///
+    /// Returns `None` when the [`WatchManager`] has shut down.
+    pub async fn recv(&self) -> Option<WatchStatusSnapshot> {
+        self.updates.recv().await.ok()
     }
 
     /// Suspend all sync activity. Syncs already in progress are not interrupted.
     pub fn suspend(&self) {
-        self.inner.sync_suspended.store(true, Ordering::Release);
+        self.commands.try_send(WatchCmd::Suspend).ok();
     }
 
     /// Resume sync activity.
     pub fn resume(&self) {
-        self.inner.sync_suspended.store(false, Ordering::Release);
+        self.commands.try_send(WatchCmd::Resume).ok();
+    }
+
+    /// Trigger an immediate sync, bypassing the debounce window.
+    pub fn sync_now(&self) {
+        self.commands.try_send(WatchCmd::SyncNow).ok();
     }
 }
 
@@ -200,6 +205,16 @@ impl FileEventHandler {
 }
 
 // ---------------------------------------------------------------------------
+// Sync thread result
+// ---------------------------------------------------------------------------
+
+struct SyncOutcome {
+    result: Result<()>,
+    sync_state: Option<SyncState>,
+    repo_state: Option<RepositoryState>,
+}
+
+// ---------------------------------------------------------------------------
 // WatchManager
 // ---------------------------------------------------------------------------
 
@@ -208,7 +223,10 @@ pub struct WatchManager {
     repo_path: String,
     sync_config: SyncConfig,
     watch_config: WatchConfig,
-    status: Arc<WatchStatusInner>,
+    update_tx: Sender<WatchStatusSnapshot>,
+    update_rx: Receiver<WatchStatusSnapshot>,
+    cmd_tx: Sender<WatchCmd>,
+    cmd_rx: Receiver<WatchCmd>,
 }
 
 impl WatchManager {
@@ -221,23 +239,28 @@ impl WatchManager {
         let path_str = repo_path.as_ref().to_string_lossy();
         let expanded = shellexpand::tilde(&path_str).to_string();
 
+        let (update_tx, update_rx) = async_channel::unbounded::<WatchStatusSnapshot>();
+        let (cmd_tx, cmd_rx) = async_channel::unbounded::<WatchCmd>();
+
         Self {
             repo_path: expanded,
             sync_config,
             watch_config,
-            status: WatchStatusInner::new(),
+            update_tx,
+            update_rx,
+            cmd_tx,
+            cmd_rx,
         }
     }
 
-    /// Returns a cloneable handle to this manager's shared status.
+    /// Returns a handle for observing status updates and sending commands.
     ///
-    /// Call this before `watch()` to obtain a handle for the UI or other
-    /// threads. The handle remains valid for the lifetime of the
-    /// `WatchStatusInner` Arc (i.e. for as long as the manager or any clone
-    /// of the handle is alive).
-    pub fn status_handle(&self) -> WatchStatusHandle {
-        WatchStatusHandle {
-            inner: Arc::clone(&self.status),
+    /// Call this before `watch()`. The handle remains valid until the manager
+    /// shuts down (i.e. `watch()` returns).
+    pub fn handle(&self) -> WatchHandle {
+        WatchHandle {
+            updates: self.update_rx.clone(),
+            commands: self.cmd_tx.clone(),
         }
     }
 
@@ -249,9 +272,11 @@ impl WatchManager {
     pub async fn watch(&self) -> Result<()> {
         info!("Starting watch mode for: {}", self.repo_path);
 
+        let mut state = WatchState::default();
+
         if self.watch_config.sync_on_start {
             info!("Performing initial sync");
-            self.perform_sync().await?;
+            self.perform_sync(&mut state).await?;
         }
 
         let (tx, rx) = async_channel::unbounded::<Event>();
@@ -263,7 +288,7 @@ impl WatchManager {
             self.watch_config.debounce_ms as f64 / 1000.0
         );
 
-        self.process_events(rx).await
+        self.process_events(rx, &mut state).await
     }
 
     fn setup_watcher(&self, tx: Sender<Event>) -> Result<RecommendedWatcher> {
@@ -280,7 +305,7 @@ impl WatchManager {
         Ok(watcher)
     }
 
-    async fn process_events(&self, rx: Receiver<Event>) -> Result<()> {
+    async fn process_events(&self, rx: Receiver<Event>, state: &mut WatchState) -> Result<()> {
         let mut sync_state = SyncScheduler::new(
             self.watch_config.debounce_ms,
             self.watch_config.min_interval_ms,
@@ -305,44 +330,41 @@ impl WatchManager {
             .periodic_sync_interval_ms
             .map(Duration::from_millis);
 
-        // Track when the next periodic sync should fire.  Skip first tick to
-        // mirror the original behaviour of discarding the first interval tick.
         let mut next_periodic_at: Option<Instant> =
             periodic_duration.map(|d| Instant::now() + d);
 
         loop {
             let now = Instant::now();
 
-            // Compute how long to wait: minimum of tick_duration and remaining
-            // time until the next periodic sync (if enabled).
             let wait = match next_periodic_at {
                 Some(t) if t <= now => Duration::ZERO,
                 Some(t) => tick_duration.min(t - now),
                 None => tick_duration,
             };
 
-            // Race: next file event vs. deadline.
-            let recv_fut = Box::pin(rx.recv());
-            let delay_fut = Box::pin(Delay::new(wait));
+            let event_fut = rx.recv().fuse();
+            let cmd_fut = self.cmd_rx.recv().fuse();
+            let delay_fut = Delay::new(wait).fuse();
+            futures::pin_mut!(event_fut, cmd_fut, delay_fut);
 
-            match future::select(recv_fut, delay_fut).await {
-                Either::Left((Ok(event), _)) => {
-                    self.handle_file_event(event, &mut sync_state);
-                }
-                Either::Left((Err(_), _)) => {
-                    // All senders dropped — watcher shut down.
-                    return Ok(());
-                }
-                Either::Right(_) => {
+            futures::select! {
+                res = event_fut => match res {
+                    Ok(event) => self.handle_file_event(event, &mut sync_state),
+                    Err(_) => return Ok(()), // all file-event senders dropped
+                },
+                res = cmd_fut => match res {
+                    Ok(WatchCmd::Suspend) => state.is_suspended = true,
+                    Ok(WatchCmd::Resume)  => state.is_suspended = false,
+                    Ok(WatchCmd::SyncNow) => sync_state.request_sync_now(),
+                    Err(_) => {} // all handles dropped; keep running
+                },
+                _ = delay_fut => {
                     let now = Instant::now();
-
-                    // Trigger periodic sync when its deadline passes.
                     if next_periodic_at.map_or(false, |t| now >= t) {
                         next_periodic_at = periodic_duration.map(|d| now + d);
                         sync_state.request_sync_now();
                     }
-
-                    self.handle_timeout(&mut sync_state).await;
+                    self.handle_timeout(&mut sync_state, state).await;
                 }
             }
         }
@@ -360,8 +382,8 @@ impl WatchManager {
         }
     }
 
-    async fn handle_timeout(&self, sync_state: &mut SyncScheduler) {
-        if self.status.sync_suspended.load(Ordering::Acquire) {
+    async fn handle_timeout(&self, sync_state: &mut SyncScheduler, state: &mut WatchState) {
+        if state.is_suspended {
             return;
         }
 
@@ -369,7 +391,7 @@ impl WatchManager {
             return;
         }
 
-        if self.status.is_syncing.load(Ordering::Acquire) {
+        if state.is_syncing {
             debug!("Sync already in progress, skipping");
             return;
         }
@@ -383,7 +405,7 @@ impl WatchManager {
             dry_run = self.watch_config.dry_run
         );
         let _guard = span.enter();
-        match self.perform_sync().await {
+        match self.perform_sync(state).await {
             Ok(()) => {
                 debug!("perform_sync succeeded");
                 sync_state.on_sync_success();
@@ -399,74 +421,93 @@ impl WatchManager {
     ///
     /// Spawns the blocking git work on a dedicated OS thread so that the async
     /// event loop is not stalled.  Compatible with any async runtime.
-    async fn perform_sync(&self) -> Result<()> {
-        if self.status.sync_suspended.load(Ordering::Acquire) {
+    ///
+    /// Pushes two snapshots via the update channel: one when the sync starts
+    /// (`is_syncing = true`) and one when it completes with all fields settled.
+    async fn perform_sync(&self, state: &mut WatchState) -> Result<()> {
+        if state.is_suspended {
             debug!("Sync is suspended, skipping sync attempt");
             return Ok(());
         }
 
-        // Guard against concurrent syncs.
-        if self.status.is_syncing.swap(true, Ordering::AcqRel) {
+        if state.is_syncing {
             debug!("Sync already in progress");
             return Ok(());
         }
 
-        let result: Result<()> = if self.watch_config.dry_run {
+        // Phase 1: mark sync start → push snapshot
+        state.is_syncing = true;
+        self.update_tx.try_send(state.snapshot()).ok();
+
+        let outcome: SyncOutcome = if self.watch_config.dry_run {
             info!("DRY RUN: Would perform sync now");
-            Ok(())
+            SyncOutcome {
+                result: Ok(()),
+                sync_state: None,
+                repo_state: None,
+            }
         } else {
             let repo_path = self.repo_path.clone();
             let sync_config = self.sync_config.clone();
-            let status = Arc::clone(&self.status);
 
-            let (tx, rx) = oneshot::channel::<Result<()>>();
+            let (tx, rx) = oneshot::channel::<SyncOutcome>();
 
             std::thread::spawn(move || {
-                let result: Result<()> = (|| {
+                let outcome = (|| {
                     let mut synchronizer = RepositorySynchronizer::new_with_detected_branch(
                         &repo_path,
                         sync_config,
                     )?;
-                    let sync_result = synchronizer.sync(false);
-
-                    // Capture post-sync state for the UI (best-effort; errors discarded).
-                    *status.last_sync_state.lock().unwrap() =
-                        synchronizer.get_sync_state().ok();
-                    *status.last_repo_state.lock().unwrap() =
-                        synchronizer.get_repository_state().ok();
-
-                    sync_result
+                    let result = synchronizer.sync(false);
+                    let sync_state = synchronizer.get_sync_state().ok();
+                    let repo_state = synchronizer.get_repository_state().ok();
+                    Ok::<SyncOutcome, crate::error::SyncError>(SyncOutcome {
+                        result,
+                        sync_state,
+                        repo_state,
+                    })
                 })();
 
-                let _ = tx.send(result);
+                let outcome = outcome.unwrap_or_else(|e| SyncOutcome {
+                    result: Err(e),
+                    sync_state: None,
+                    repo_state: None,
+                });
+
+                tx.send(outcome).ok();
             });
 
             match rx.await {
-                Ok(inner) => inner,
-                Err(_) => Err(SyncError::TaskError(
-                    "Sync thread disconnected".to_string(),
-                )),
+                Ok(outcome) => outcome,
+                Err(_) => SyncOutcome {
+                    result: Err(SyncError::TaskError(
+                        "Sync thread disconnected".to_string(),
+                    )),
+                    sync_state: None,
+                    repo_state: None,
+                },
             }
         };
 
-        self.status.is_syncing.store(false, Ordering::Release);
-
-        if result.is_ok() {
-            self.status
-                .last_successful_sync_unix_secs
-                .store(chrono::Utc::now().timestamp(), Ordering::Release);
+        // Phase 2: settle all fields → push snapshot
+        state.is_syncing = false;
+        state.last_sync_state = outcome.sync_state;
+        state.last_repo_state = outcome.repo_state;
+        if outcome.result.is_ok() {
+            state.last_successful_sync_unix_secs = chrono::Utc::now().timestamp();
+            state.last_error = None;
+        } else {
+            state.last_error = outcome.result.as_ref().err().map(ToString::to_string);
         }
+        self.update_tx.try_send(state.snapshot()).ok();
 
-        *self.status.last_error.lock().unwrap() =
-            result.as_ref().err().map(ToString::to_string);
-
-        if let Err(ref err) = result {
+        if let Err(ref err) = outcome.result {
             error!(error = %err, "perform_sync finished with error");
         } else {
             debug!("perform_sync finished successfully");
         }
 
-        result
+        outcome.result
     }
 
     fn log_sync_error(&self, e: &SyncError) {

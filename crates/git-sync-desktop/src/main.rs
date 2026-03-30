@@ -6,7 +6,7 @@ mod tray;
 mod ui;
 mod worker;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::*;
@@ -22,6 +22,7 @@ use status::AppStatus;
 use tray::create_tray_icon;
 use ui::AppWindow;
 use worker::{run_background, BgCmd};
+use tokio::sync::watch;
 
 fn main() {
     // Initialize logging
@@ -34,12 +35,13 @@ fn main() {
     gtk::init().expect("Failed to initialize GTK");
 
     let config = load_config();
-    let status: Arc<Mutex<AppStatus>> = Arc::new(Mutex::new(AppStatus::default()));
+    let (status_tx, status_rx) = watch::channel(AppStatus::default());
+    let status_tx = Arc::new(status_tx);
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<BgCmd>();
 
     // Spawn background sync worker
     {
-        let status_bg = Arc::clone(&status);
+        let status_bg = Arc::clone(&status_tx);
         let init_cfg = config.clone();
         std::thread::spawn(move || run_background(init_cfg, status_bg, rx));
     }
@@ -55,17 +57,36 @@ fn main() {
             // System tray
             let quit_item = MenuItem::new("Quit git-sync", true, None);
             let tray_menu = Menu::new();
-            tray_menu.append(&quit_item).unwrap();
+            tray_menu.append(&quit_item).expect("failed to append tray menu item");
             let _tray = TrayIconBuilder::new()
                 .with_tooltip("git-sync")
                 .with_icon(create_tray_icon())
                 .with_menu(Box::new(tray_menu))
                 .build()
-                .unwrap();
+                .expect("failed to build system tray icon");
             let quit_id = quit_item.id().clone();
 
             let state_task = state.clone();
-            let status_task = Arc::clone(&status);
+
+            // Status listener: push AppStatus updates to GPUI whenever the worker
+            // writes a new value — no polling, wakes only on change.
+            cx.spawn({
+                let state_task = state_task.clone();
+                let mut rx = status_rx;
+                async move |cx: &mut gpui::AsyncApp| {
+                    loop {
+                        if rx.changed().await.is_err() {
+                            break;
+                        }
+                        let snapshot = rx.borrow_and_update().clone();
+                        cx.update(|app| {
+                            state_task.update(app, |s, cx| s.update_status(snapshot, cx));
+                        })
+                        .ok();
+                    }
+                }
+            })
+            .detach();
 
             cx.spawn(async move |cx| {
                 let window = cx.open_window(
@@ -82,25 +103,12 @@ fn main() {
                     },
                 )?;
 
-                let mut tick: u32 = 0;
                 let mut visible = true;
 
                 loop {
                     cx.background_executor()
                         .timer(Duration::from_millis(50))
                         .await;
-                    tick += 1;
-
-                    // Push status update every 500 ms (10 ticks)
-                    if tick.is_multiple_of(10) {
-                        let snapshot = status_task.lock().unwrap().clone();
-                        cx.update(|app| {
-                            state_task.update(app, |s, cx| {
-                                s.update_status(snapshot, cx);
-                            });
-                        })
-                        .ok();
-                    }
 
                     // GTK event pump (Linux only)
                     #[cfg(target_os = "linux")]

@@ -5,6 +5,7 @@ use gpui_component::{
     table::{Column, Table, TableDelegate, TableState},
     v_flex, ActiveTheme, Icon, IconName, Sizable,
 };
+use std::time::Duration;
 
 use super::nav_state::{NavRequest, NavState};
 use crate::status::format_last_sync;
@@ -75,10 +76,14 @@ impl TableDelegate for RepoTableDelegate {
         _window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        let s = self.state.read(cx);
+        let state = self.state.clone();
+
+        let s = state.read(cx);
         let repo = s.config.repositories.get(row_ix).cloned();
         let status = s.status.repos.get(row_ix).cloned();
         let _ = s;
+
+        let last_sync = format_last_sync(status.as_ref().and_then(|s| s.last_sync_time));
 
         let cell: AnyElement = match col_ix {
             0 => {
@@ -120,14 +125,11 @@ impl TableDelegate for RepoTableDelegate {
                     .child(div().text_sm().child(label))
                     .into_any_element()
             }
-            2 => {
-                let last_sync = format_last_sync(status.as_ref().and_then(|s| s.last_sync_time));
-                div()
-                    .text_sm()
-                    .text_color(hsla(0.0, 0.0, 0.5, 1.0))
-                    .child(last_sync)
-                    .into_any_element()
-            }
+            2 => div()
+                .text_sm()
+                .text_color(hsla(0.0, 0.0, 0.5, 1.0))
+                .child(last_sync)
+                .into_any_element(),
             _ => {
                 let state = self.state.clone();
                 let nav = self.nav.clone();
@@ -184,6 +186,7 @@ pub struct RepoListView {
     nav: Entity<NavState>,
     table_state: Entity<TableState<RepoTableDelegate>>,
     _sub: Subscription,
+    _timer: Task<()>,
 }
 
 impl RepoListView {
@@ -209,10 +212,22 @@ impl RepoListView {
             cx.notify();
         });
 
+        // Refresh the table every 100 ms so "last sync" relative-time labels
+        // (e.g. "30 seconds ago") stay current between sync events.
+        // The task is cancelled automatically when this view is dropped.
+        let ts = table_state.clone();
+        let timer = cx.spawn(async move |_, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            ts.update(cx, |table, cx| table.refresh(cx)).ok();
+        });
+
         Self {
             nav,
             table_state,
             _sub: sub,
+            _timer: timer,
         }
     }
 }
