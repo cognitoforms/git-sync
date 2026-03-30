@@ -1,7 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Minus, Square, X } from "@phosphor-icons/react";
+import { ArrowLeft, Minus, Moon, Square, Sun, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTheme } from "./ThemeProvider";
 import StatusDot from "./StatusDot";
 
 const appWindow = getCurrentWindow();
@@ -23,6 +24,8 @@ export default function TitleBar({
   onBack,
   className,
 }: Props) {
+  const { resolvedTheme, setTheme } = useTheme();
+
   return (
     <div
       className={cn(
@@ -55,8 +58,17 @@ export default function TitleBar({
         )}
       </div>
 
-      {/* Window controls */}
+      {/* Theme toggle + window controls */}
       <div className="flex h-full shrink-0">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          className="rounded-none h-full w-9"
+          aria-label="Toggle theme"
+        >
+          {resolvedTheme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+        </Button>
         <button
           onClick={() => appWindow.minimize()}
           className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
@@ -82,3 +94,4 @@ export default function TitleBar({
     </div>
   );
 }
+
