@@ -9,7 +9,7 @@ pub struct RepoStatus {
     pub repo_state_label: String,
     pub is_syncing: bool,
     pub error: Option<String>,
-    pub last_sync_time: Option<std::time::Instant>,
+    pub last_sync_time: Option<chrono::DateTime<chrono::Local>>,
 }
 
 impl RepoStatus {
@@ -79,11 +79,11 @@ pub fn repo_state_label(s: &RepositoryState) -> &'static str {
     }
 }
 
-pub fn format_last_sync(t: Option<std::time::Instant>) -> String {
-    let Some(instant) = t else {
+pub fn format_last_sync(t: Option<chrono::DateTime<chrono::Local>>) -> String {
+    let Some(dt) = t else {
         return "Never".to_string();
     };
-    let secs = instant.elapsed().as_secs();
+    let secs = (chrono::Local::now() - dt).num_seconds().max(0) as u64;
     if secs < 5 {
         "Just now".to_string()
     } else if secs < 60 {

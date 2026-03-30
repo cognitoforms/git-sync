@@ -2259,6 +2259,7 @@ name = "git-sync-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "directories 6.0.0",
  "git-sync-lib",
  "gpui",
