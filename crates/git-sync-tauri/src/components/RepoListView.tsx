@@ -47,8 +47,12 @@ export default function RepoListView({
               <tr className="bg-muted/50 border-b border-border text-muted-foreground uppercase tracking-wide text-[11px]">
                 <th className="text-left px-3 py-2 font-medium">Repository</th>
                 <th className="text-left px-3 py-2 font-medium">Sync State</th>
-                <th className="text-left px-3 py-2 font-medium hidden md:table-cell">Repo State</th>
-                <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">Last Sync</th>
+                <th className="text-left px-3 py-2 font-medium hidden md:table-cell">
+                  Repo State
+                </th>
+                <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">
+                  Last Sync
+                </th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
@@ -101,7 +105,12 @@ export default function RepoListView({
                           onClick={() => syncNow(idx)}
                           title="Sync now"
                         >
-                          <ArrowsClockwise weight="bold" className={st?.is_syncing ? "animate-spin" : undefined} />
+                          <ArrowsClockwise
+                            weight="bold"
+                            className={
+                              st?.is_syncing ? "animate-spin" : undefined
+                            }
+                          />
                         </Button>
                         <Button
                           variant="ghost"
@@ -122,8 +131,12 @@ export default function RepoListView({
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2.5 border-t border-border">
-        <Button size="sm" onClick={() => onOpenSettings(null)}>
+      <div className="px-3 py-2.5 border-t border-border flex">
+        <Button
+          className="ml-auto"
+          size="sm"
+          onClick={() => onOpenSettings(null)}
+        >
           + Add Repository
         </Button>
       </div>

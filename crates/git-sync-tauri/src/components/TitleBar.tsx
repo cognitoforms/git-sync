@@ -38,7 +38,7 @@ export default function TitleBar({
       {/* Drag region — fills all space between left content and window controls */}
       <div
         className={cn(
-          "flex flex-1 items-center gap-2 h-full min-w-0 overflow-hidden",
+          "flex flex-1 items-center gap-0.5 h-full min-w-0 overflow-hidden",
           IS_MAC ? "pl-[82px]" : "px-2",
         )}
         data-tauri-drag-region
@@ -55,7 +55,7 @@ export default function TitleBar({
         ) : (
           <StatusDot
             id={aggStatusId ?? "unknown"}
-            className="shrink-0 ml-2 mr-1"
+            className="shrink-0 ml-2 mr-2.5"
           />
         )}
         <div
