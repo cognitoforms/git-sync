@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { FolderOpen } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { pickFolder } from "@/api";
+import type React from "react";
 import type { DesktopConfig, RepoConfig } from "@/types";
 
 interface Props {
@@ -73,7 +75,7 @@ export default function RepoSettingsView({
 					<Field label="Display name (optional)">
 						<Input
 							value={form.name}
-							onChange={(v) => set({ name: v })}
+							onChange={(e) => set({ name: e.target.value })}
 							placeholder="my-project"
 						/>
 					</Field>
@@ -83,7 +85,7 @@ export default function RepoSettingsView({
 							<Input
 								className="flex-1"
 								value={form.repo_path}
-								onChange={(v) => set({ repo_path: v })}
+								onChange={(e) => set({ repo_path: e.target.value })}
 								placeholder="/path/to/repo"
 							/>
 							<Button
@@ -91,6 +93,7 @@ export default function RepoSettingsView({
 								size="sm"
 								onClick={handleBrowse}
 								disabled={picking}
+								className="h-auto self-stretch"
 							>
 								<FolderOpen weight="bold" />
 								{picking ? "…" : "Browse"}
@@ -101,7 +104,7 @@ export default function RepoSettingsView({
 					<Field label="Remote">
 						<Input
 							value={form.remote}
-							onChange={(v) => set({ remote: v })}
+							onChange={(e) => set({ remote: e.target.value })}
 							placeholder="origin"
 						/>
 					</Field>
@@ -109,27 +112,27 @@ export default function RepoSettingsView({
 					<Field label="Branch (leave blank to auto-detect)">
 						<Input
 							value={form.branch}
-							onChange={(v) => set({ branch: v })}
+							onChange={(e) => set({ branch: e.target.value })}
 							placeholder="main"
 						/>
 					</Field>
 
 					<Field label="Sync interval (seconds)">
-						<input
+						<Input
 							type="number"
 							min={10}
 							value={form.interval_secs}
 							onChange={(e) =>
 								set({ interval_secs: Math.max(10, Number(e.target.value)) })
 							}
-							className="bg-background border-input focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-28 rounded-none border px-2 text-xs outline-none focus-visible:ring-1"
+							className="w-28"
 						/>
 					</Field>
 
 					<Field label="Commit message (leave blank for default)">
 						<Input
 							value={form.commit_message}
-							onChange={(v) => set({ commit_message: v })}
+							onChange={(e) => set({ commit_message: e.target.value })}
 							placeholder="changes from {hostname} on {timestamp}"
 						/>
 					</Field>
@@ -191,30 +194,6 @@ function Field({
 	);
 }
 
-function Input({
-	value,
-	onChange,
-	placeholder,
-	className,
-}: {
-	value: string;
-	onChange: (v: string) => void;
-	placeholder?: string;
-	className?: string;
-}) {
-	return (
-		<input
-			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			placeholder={placeholder}
-			className={cn(
-				"bg-background border-input focus-visible:border-ring focus-visible:ring-ring/50 placeholder:text-muted-foreground h-8 w-full rounded-none border px-2 text-xs outline-none focus-visible:ring-1",
-				className,
-			)}
-		/>
-	);
-}
-
 function CheckField({
 	label,
 	checked,
@@ -226,11 +205,9 @@ function CheckField({
 }) {
 	return (
 		<label className="text-foreground flex cursor-pointer items-center gap-2.5 text-xs select-none">
-			<input
-				type="checkbox"
+			<Checkbox
 				checked={checked}
-				onChange={(e) => onChange(e.target.checked)}
-				className="accent-primary size-3.5 rounded-none"
+				onCheckedChange={(v) => onChange(v === true)}
 			/>
 			{label}
 		</label>

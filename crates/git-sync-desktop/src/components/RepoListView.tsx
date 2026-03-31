@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Question } from "@phosphor-icons/react";
+import { ArrowsClockwise, GearSix } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { syncNow, formatLastSync } from "@/api";
 import type { AppStatus, DesktopConfig } from "@/types";
@@ -9,14 +9,12 @@ interface Props {
 	config: DesktopConfig;
 	status: AppStatus;
 	onOpenSettings: (idx: number | null) => void;
-	onAbout: () => void;
 }
 
 export default function RepoListView({
 	config,
 	status,
 	onOpenSettings,
-	onAbout,
 }: Props) {
 	const [, setTick] = useState(0);
 
@@ -30,13 +28,6 @@ export default function RepoListView({
 
 	return (
 		<div className="flex h-full flex-col">
-			{/* Toolbar */}
-			<div className="border-border flex items-center justify-end border-b px-3 py-1.5">
-				<Button variant="ghost" size="icon-sm" onClick={onAbout} title="About">
-					<Question weight="bold" />
-				</Button>
-			</div>
-
 			{/* Repository table */}
 			<div className="flex-1 overflow-y-auto">
 				{repos.length === 0 ? (
@@ -44,13 +35,24 @@ export default function RepoListView({
 						No repositories configured. Add one to get started.
 					</div>
 				) : (
-					<table className="w-full border-collapse text-xs">
+					<table className="w-full table-fixed border-collapse text-sm">
+						<colgroup>
+							<col className="w-auto" />
+							<col className="w-36" />
+							<col className="hidden w-32 md:table-column" />
+							<col className="hidden w-36 sm:table-column" />
+							<col className="w-20" />
+						</colgroup>
 						<thead>
 							<tr className="bg-muted/50 border-border text-muted-foreground border-b text-[11px] tracking-wide uppercase">
 								<th className="px-3 py-2 text-left font-medium">Repository</th>
 								<th className="px-3 py-2 text-left font-medium">Sync State</th>
-								<th className="px-3 py-2 text-left font-medium">Repo State</th>
-								<th className="px-3 py-2 text-left font-medium">Last Sync</th>
+								<th className="hidden px-3 py-2 text-left font-medium md:table-cell">
+									Repo State
+								</th>
+								<th className="hidden px-3 py-2 text-left font-medium sm:table-cell">
+									Last Sync
+								</th>
 								<th className="px-3 py-2" />
 							</tr>
 						</thead>
@@ -87,29 +89,36 @@ export default function RepoListView({
 												<span className="text-muted-foreground">—</span>
 											)}
 										</td>
-										<td className="text-foreground px-3 py-2.5 align-middle">
+										<td className="text-foreground hidden px-3 py-2.5 align-middle md:table-cell">
 											{st?.repo_state_label ?? (
 												<span className="text-muted-foreground">—</span>
 											)}
 										</td>
-										<td className="text-muted-foreground px-3 py-2.5 align-middle whitespace-nowrap">
+										<td className="text-muted-foreground hidden px-3 py-2.5 align-middle whitespace-nowrap sm:table-cell">
 											{st ? formatLastSync(st.last_sync_time) : "—"}
 										</td>
 										<td className="px-3 py-2.5 align-middle whitespace-nowrap">
 											<div className="flex items-center gap-1">
 												<Button
-													variant="outline"
-													size="xs"
+													variant="ghost"
+													size="icon-sm"
 													onClick={() => syncNow(idx)}
+													title="Sync now"
 												>
-													Sync now
+													<ArrowsClockwise
+														weight="bold"
+														className={
+															st?.is_syncing ? "animate-spin" : undefined
+														}
+													/>
 												</Button>
 												<Button
 													variant="ghost"
-													size="xs"
+													size="icon-sm"
 													onClick={() => onOpenSettings(idx)}
+													title="Settings"
 												>
-													Settings
+													<GearSix weight="bold" />
 												</Button>
 											</div>
 										</td>

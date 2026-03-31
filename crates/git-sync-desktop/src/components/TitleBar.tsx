@@ -29,7 +29,7 @@ export default function TitleBar({
 	return (
 		<div
 			className={cn(
-				"border-border bg-background flex h-10 shrink-0 items-center border-b",
+				"border-border bg-muted/50 flex h-10 shrink-0 items-center border-b",
 				className,
 			)}
 		>
@@ -48,22 +48,30 @@ export default function TitleBar({
 						<ArrowLeft weight="bold" />
 					</Button>
 				) : (
-					<StatusDot id={aggStatusId ?? "unknown"} className="shrink-0" />
+					<StatusDot
+						id={aggStatusId ?? "unknown"}
+						className="mr-1 ml-2 shrink-0"
+					/>
 				)}
-				<span
-					className="truncate text-sm font-semibold select-none"
+				<div
+					className="flex min-w-0 items-baseline gap-2 overflow-hidden"
 					data-tauri-drag-region
 				>
-					{title}
-				</span>
-				{!inSettings && aggStatusLabel && (
 					<span
-						className="text-muted-foreground truncate text-xs select-none"
+						className="truncate text-sm font-semibold select-none"
 						data-tauri-drag-region
 					>
-						{aggStatusLabel}
+						{title}
 					</span>
-				)}
+					{!inSettings && aggStatusLabel && (
+						<span
+							className="text-muted-foreground truncate text-xs select-none"
+							data-tauri-drag-region
+						>
+							{aggStatusLabel}
+						</span>
+					)}
+				</div>
 			</div>
 
 			{/* Theme toggle + window controls */}
