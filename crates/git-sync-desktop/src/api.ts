@@ -8,6 +8,8 @@ export const getStatus = () => invoke<AppStatus>("get_status");
 export const setConfig = (config: DesktopConfig) =>
 	invoke<void>("set_config", { config });
 export const syncNow = (index: number) => invoke<void>("sync_now", { index });
+export const validateRepoPath = (path: string) =>
+	invoke<boolean>("validate_repo_path", { path });
 
 export const pickFolder = () =>
 	open({ directory: true, multiple: false }) as Promise<string | null>;

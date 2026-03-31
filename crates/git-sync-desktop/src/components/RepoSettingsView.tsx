@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useForm, Controller } from "react-hook-form";
+import { toast } from "sonner";
+import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
+import { z } from "zod";
 import { FolderOpen } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { pickFolder } from "@/api";
-import type React from "react";
-import type { DesktopConfig, RepoConfig } from "@/types";
+import { Field, FieldLabel, FieldError } from "@/components/ui/field";
+import { pickFolder, validateRepoPath } from "@/api";
+import type { DesktopConfig } from "@/types";
 
 interface Props {
 	config: DesktopConfig;
@@ -14,7 +17,21 @@ interface Props {
 	onBack: () => void;
 }
 
-const DEFAULT_REPO: RepoConfig = {
+const schema = z.object({
+	name: z.string(),
+	repo_path: z.string().min(1, "Repository path is required"),
+	remote: z.string().min(1, "Remote is required"),
+	branch: z.string(),
+	interval_secs: z.coerce.number().int().min(10, "Minimum 10 seconds"),
+	commit_message: z.string(),
+	sync_new_files: z.boolean(),
+	skip_hooks: z.boolean(),
+	conflict_branch: z.boolean(),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+const DEFAULT_VALUES: FormValues = {
 	name: "",
 	repo_path: "",
 	remote: "origin",
@@ -33,30 +50,38 @@ export default function RepoSettingsView({
 	onBack,
 }: Props) {
 	const existing = idx !== null ? config.repositories[idx] : null;
-	const [form, setForm] = useState<RepoConfig>(existing ?? DEFAULT_REPO);
-	const [picking, setPicking] = useState(false);
 
-	const set = (patch: Partial<RepoConfig>) =>
-		setForm((f) => ({ ...f, ...patch }));
+	const {
+		control,
+		handleSubmit,
+		setError,
+		clearErrors,
+		formState: { errors, isValid },
+	} = useForm<FormValues>({
+		resolver: standardSchemaResolver(schema),
+		defaultValues: existing ?? DEFAULT_VALUES,
+		mode: "onBlur",
+	});
 
-	const handleBrowse = async () => {
-		setPicking(true);
-		try {
-			const path = await pickFolder();
-			if (path) set({ repo_path: path });
-		} finally {
-			setPicking(false);
+	const checkGitRepo = async (path: string) => {
+		if (!path) return;
+		const valid = await validateRepoPath(path);
+		if (!valid) {
+			setError("repo_path", { message: "Directory is not a Git repository" });
+		} else {
+			clearErrors("repo_path");
 		}
 	};
 
-	const handleSave = () => {
+	const onSubmit = (values: FormValues) => {
 		const repos = [...config.repositories];
 		if (idx !== null) {
-			repos[idx] = form;
+			repos[idx] = values;
 		} else {
-			repos.push(form);
+			repos.push(values);
 		}
 		onSave({ ...config, repositories: repos });
+		toast.success("Repository settings saved");
 	};
 
 	const handleDelete = () => {
@@ -71,90 +96,130 @@ export default function RepoSettingsView({
 		<div className="flex h-full flex-col">
 			{/* Scrollable form */}
 			<div className="flex-1 overflow-y-auto p-4">
-				<div className="flex max-w-lg flex-col gap-4">
-					<Field label="Display name (optional)">
-						<Input
-							value={form.name}
-							onChange={(e) => set({ name: e.target.value })}
-							placeholder="my-project"
-						/>
-					</Field>
-
-					<Field label="Repository path">
-						<div className="flex gap-2">
-							<Input
-								className="flex-1"
-								value={form.repo_path}
-								onChange={(e) => set({ repo_path: e.target.value })}
-								placeholder="/path/to/repo"
+				<form id="repo-settings-form" onSubmit={handleSubmit(onSubmit)}>
+					<div className="flex max-w-lg flex-col gap-4">
+						<Field>
+							<FieldLabel>Display name (optional)</FieldLabel>
+							<Controller
+								name="name"
+								control={control}
+								render={({ field }) => (
+									<Input {...field} placeholder="my-project" />
+								)}
 							/>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={handleBrowse}
-								disabled={picking}
-								className="h-auto self-stretch"
-							>
-								<FolderOpen weight="bold" />
-								{picking ? "…" : "Browse"}
-							</Button>
+						</Field>
+
+						<Field data-invalid={!!errors.repo_path}>
+							<FieldLabel>Repository path</FieldLabel>
+							<Controller
+								name="repo_path"
+								control={control}
+								render={({ field }) => (
+									<div className="flex gap-2">
+										<Input
+											{...field}
+											className="flex-1"
+											placeholder="/path/to/repo"
+											onBlur={() => checkGitRepo(field.value)}
+										/>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={async () => {
+												const path = await pickFolder();
+												if (path) {
+													field.onChange(path);
+													await checkGitRepo(path);
+												}
+											}}
+											className="h-auto self-stretch"
+										>
+											<FolderOpen weight="bold" />
+											Browse
+										</Button>
+									</div>
+								)}
+							/>
+							<FieldError errors={[errors.repo_path]} />
+						</Field>
+
+						<Field data-invalid={!!errors.remote}>
+							<FieldLabel>Remote</FieldLabel>
+							<Controller
+								name="remote"
+								control={control}
+								render={({ field }) => (
+									<Input {...field} placeholder="origin" />
+								)}
+							/>
+							<FieldError errors={[errors.remote]} />
+						</Field>
+
+						<Field>
+							<FieldLabel>Branch (leave blank to auto-detect)</FieldLabel>
+							<Controller
+								name="branch"
+								control={control}
+								render={({ field }) => <Input {...field} placeholder="main" />}
+							/>
+						</Field>
+
+						<Field data-invalid={!!errors.interval_secs}>
+							<FieldLabel>Sync interval (seconds)</FieldLabel>
+							<Controller
+								name="interval_secs"
+								control={control}
+								render={({ field }) => (
+									<Input type="number" min={10} {...field} className="w-28" />
+								)}
+							/>
+							<FieldError errors={[errors.interval_secs]} />
+						</Field>
+
+						<Field>
+							<FieldLabel>Commit message (leave blank for default)</FieldLabel>
+							<Controller
+								name="commit_message"
+								control={control}
+								render={({ field }) => (
+									<Input
+										{...field}
+										placeholder="changes from {hostname} on {timestamp}"
+									/>
+								)}
+							/>
+						</Field>
+
+						<div className="flex flex-col gap-2.5 pt-1">
+							{(
+								["sync_new_files", "skip_hooks", "conflict_branch"] as const
+							).map((name) => (
+								<Controller
+									key={name}
+									name={name}
+									control={control}
+									render={({ field }) => (
+										<label className="text-foreground flex cursor-pointer items-center gap-2.5 text-xs select-none">
+											<Checkbox
+												checked={field.value}
+												onCheckedChange={(v) => field.onChange(v === true)}
+											/>
+											{
+												{
+													sync_new_files: "Sync new (untracked) files",
+													skip_hooks: "Skip git hooks on commit",
+													conflict_branch:
+														"Create conflict branch on merge conflict",
+												}[name]
+											}
+										</label>
+									)}
+								/>
+							))}
 						</div>
-					</Field>
-
-					<Field label="Remote">
-						<Input
-							value={form.remote}
-							onChange={(e) => set({ remote: e.target.value })}
-							placeholder="origin"
-						/>
-					</Field>
-
-					<Field label="Branch (leave blank to auto-detect)">
-						<Input
-							value={form.branch}
-							onChange={(e) => set({ branch: e.target.value })}
-							placeholder="main"
-						/>
-					</Field>
-
-					<Field label="Sync interval (seconds)">
-						<Input
-							type="number"
-							min={10}
-							value={form.interval_secs}
-							onChange={(e) =>
-								set({ interval_secs: Math.max(10, Number(e.target.value)) })
-							}
-							className="w-28"
-						/>
-					</Field>
-
-					<Field label="Commit message (leave blank for default)">
-						<Input
-							value={form.commit_message}
-							onChange={(e) => set({ commit_message: e.target.value })}
-							placeholder="changes from {hostname} on {timestamp}"
-						/>
-					</Field>
-
-					<div className="flex flex-col gap-2.5 pt-1">
-						<CheckField
-							label="Sync new (untracked) files"
-							checked={form.sync_new_files}
-							onChange={(v) => set({ sync_new_files: v })}
-						/>
-						<CheckField
-							label="Skip git hooks on commit"
-							checked={form.skip_hooks}
-							onChange={(v) => set({ skip_hooks: v })}
-						/>
-						<CheckField
-							label="Create conflict branch on merge conflict"
-							checked={form.conflict_branch}
-							onChange={(v) => set({ conflict_branch: v })}
-						/>
 					</div>
-				</div>
+				</form>
 			</div>
 
 			{/* Footer */}
@@ -170,46 +235,16 @@ export default function RepoSettingsView({
 					<Button variant="ghost" size="sm" onClick={onBack}>
 						Cancel
 					</Button>
-					<Button size="sm" onClick={handleSave} disabled={!form.repo_path}>
+					<Button
+						type="submit"
+						form="repo-settings-form"
+						size="sm"
+						disabled={!isValid}
+					>
 						Save
 					</Button>
 				</div>
 			</div>
 		</div>
-	);
-}
-
-function Field({
-	label,
-	children,
-}: {
-	label: string;
-	children: React.ReactNode;
-}) {
-	return (
-		<div className="flex flex-col gap-1.5">
-			<label className="text-foreground text-xs font-medium">{label}</label>
-			{children}
-		</div>
-	);
-}
-
-function CheckField({
-	label,
-	checked,
-	onChange,
-}: {
-	label: string;
-	checked: boolean;
-	onChange: (v: boolean) => void;
-}) {
-	return (
-		<label className="text-foreground flex cursor-pointer items-center gap-2.5 text-xs select-none">
-			<Checkbox
-				checked={checked}
-				onCheckedChange={(v) => onChange(v === true)}
-			/>
-			{label}
-		</label>
 	);
 }
