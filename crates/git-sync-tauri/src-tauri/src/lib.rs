@@ -5,7 +5,9 @@ mod worker;
 
 use std::sync::{Arc, Mutex};
 
-use tauri::{Emitter, Manager, WindowEvent};
+#[cfg(target_os = "macos")]
+use tauri::LogicalPosition;
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tokio::sync::watch;
 
 use config::{load_config, DesktopConfig};
@@ -47,6 +49,24 @@ pub fn run() {
         }))
         .manage(Mutex::new(StatusState(status_rx)))
         .setup(|app| {
+            // Build main window with platform-specific title bar style.
+            let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+                .title("Git Sync")
+                .inner_size(680.0, 520.0)
+                .min_inner_size(520.0, 440.0)
+                .shadow(true);
+
+            #[cfg(target_os = "macos")]
+            let win_builder = win_builder
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .traffic_light_position(LogicalPosition::new(13, 22))
+                .hidden_title(true);
+
+            #[cfg(not(target_os = "macos"))]
+            let win_builder = win_builder.decorations(false);
+
+            win_builder.build()?;
+
             // Push status updates to the frontend whenever the worker sends a new snapshot.
             let app_handle = app.handle().clone();
             let mut rx = status_rx_forwarder;
@@ -66,8 +86,7 @@ pub fn run() {
                 tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
             };
 
-            let quit_item =
-                MenuItem::with_id(app, "quit", "Quit Git Sync", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Git Sync", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_item])?;
 
             TrayIconBuilder::new()

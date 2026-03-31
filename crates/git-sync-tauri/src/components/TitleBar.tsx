@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { platform } from "@tauri-apps/plugin-os";
 import { ArrowLeft, Minus, Moon, Square, Sun, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -6,6 +7,7 @@ import { useTheme } from "./ThemeProvider";
 import StatusDot from "./StatusDot";
 
 const appWindow = getCurrentWindow();
+const IS_MAC = platform() === "macos";
 
 interface Props {
   inSettings: boolean;
@@ -35,7 +37,10 @@ export default function TitleBar({
     >
       {/* Drag region — fills all space between left content and window controls */}
       <div
-        className="flex flex-1 items-center gap-2 px-2 h-full min-w-0 overflow-hidden"
+        className={cn(
+          "flex flex-1 items-center gap-2 h-full min-w-0 overflow-hidden",
+          IS_MAC ? "pl-[82px]" : "px-2",
+        )}
         data-tauri-drag-region
       >
         {inSettings ? (
@@ -85,27 +90,31 @@ export default function TitleBar({
         >
           {resolvedTheme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
         </Button>
-        <button
-          onClick={() => appWindow.minimize()}
-          className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
-          aria-label="Minimize"
-        >
-          <Minus size={12} weight="bold" />
-        </button>
-        <button
-          onClick={() => appWindow.toggleMaximize()}
-          className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
-          aria-label="Maximize"
-        >
-          <Square size={11} />
-        </button>
-        <button
-          onClick={() => appWindow.close()}
-          className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-red-500 hover:text-white transition-colors"
-          aria-label="Close"
-        >
-          <X size={13} weight="bold" />
-        </button>
+        {!IS_MAC && (
+          <>
+            <button
+              onClick={() => appWindow.minimize()}
+              className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Minimize"
+            >
+              <Minus size={12} weight="bold" />
+            </button>
+            <button
+              onClick={() => appWindow.toggleMaximize()}
+              className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Maximize"
+            >
+              <Square size={11} />
+            </button>
+            <button
+              onClick={() => appWindow.close()}
+              className="flex items-center justify-center w-10 h-full text-foreground/70 hover:bg-red-500 hover:text-white transition-colors"
+              aria-label="Close"
+            >
+              <X size={13} weight="bold" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
