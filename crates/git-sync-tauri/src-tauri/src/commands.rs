@@ -3,9 +3,10 @@ use std::sync::Mutex;
 use tauri::State;
 
 use crate::config::DesktopConfig;
+use crate::log_layer::FrontendLogEntry;
 use crate::status::AppStatus;
 use crate::worker::BgCmd;
-use crate::{AppState, StatusState};
+use crate::{AppState, LogState, StatusState};
 
 #[tauri::command]
 pub fn get_config(state: State<'_, Mutex<AppState>>) -> DesktopConfig {
@@ -59,4 +60,19 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String
             path_opt.and_then(|p| p.into_path().ok())
                     .map(|pb| pb.to_string_lossy().to_string())
         })
+}
+
+#[tauri::command]
+pub fn get_log_history(
+    repo: Option<String>,
+    state: State<'_, LogState>,
+) -> Vec<FrontendLogEntry> {
+    let hist = state.history.lock().unwrap();
+    hist.iter()
+        .filter(|e| match &repo {
+            None => true,
+            Some(r) => e.repo.as_deref() == Some(r.as_str()),
+        })
+        .cloned()
+        .collect()
 }

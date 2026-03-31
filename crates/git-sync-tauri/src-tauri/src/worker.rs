@@ -4,6 +4,7 @@ use std::time::Duration;
 use git_sync_lib::{SyncConfig, WatchConfig, WatchManager};
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
+use tracing::Instrument as _;
 
 use crate::config::{DesktopConfig, RepoConfig};
 use crate::status::{AppStatus, RepoStatus, repo_state_label, sync_state_id, sync_state_label};
@@ -188,7 +189,7 @@ async fn run_repo(idx: usize, cfg: &RepoConfig, status_tx: Arc<watch::Sender<App
     };
 
     let watch_result = tokio::select! {
-        r = wm.watch() => Some(r),
+        r = wm.watch().instrument(tracing::info_span!("repo_watcher", repo = %cfg.repo_path)) => Some(r),
         _ = push_fut => None,
     };
 

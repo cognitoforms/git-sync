@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
-import { getConfig, getStatus, onStatusUpdate, setConfig } from "./api";
+import {
+  getConfig,
+  getStatus,
+  onStatusUpdate,
+  setConfig,
+} from "./api";
 import type { AppStatus, DesktopConfig, View } from "./types";
 import TitleBar from "./components/TitleBar";
 import RepoListView from "./components/RepoListView";
 import RepoSettingsView from "./components/RepoSettingsView";
-import AboutModal from "./components/AboutModal";
 
 const EMPTY_CONFIG: DesktopConfig = { repositories: [] };
 const EMPTY_STATUS: AppStatus = { repos: [] };

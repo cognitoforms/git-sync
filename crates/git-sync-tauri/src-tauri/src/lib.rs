@@ -1,16 +1,20 @@
 mod commands;
 mod config;
+mod log_layer;
 mod status;
 mod worker;
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "macos")]
 use tauri::LogicalPosition;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tokio::sync::watch;
+use tracing_subscriber::prelude::*;
 
 use config::{load_config, DesktopConfig};
+use log_layer::{FrontendLogEntry, TauriLogLayer};
 use status::AppStatus;
 use worker::BgCmd;
 
@@ -21,10 +25,22 @@ pub struct AppState {
 
 pub struct StatusState(watch::Receiver<AppStatus>);
 
+pub struct LogState {
+    pub history: Arc<Mutex<VecDeque<FrontendLogEntry>>>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    let (log_tx, mut log_rx) = tokio::sync::mpsc::unbounded_channel::<FrontendLogEntry>();
+    let log_history = Arc::new(Mutex::new(VecDeque::<FrontendLogEntry>::new()));
+    let log_history_for_task = Arc::clone(&log_history);
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_filter(tracing_subscriber::EnvFilter::from_default_env()),
+        )
+        .with(TauriLogLayer::new(log_tx))
         .init();
 
     let config = load_config();
@@ -48,6 +64,7 @@ pub fn run() {
             worker_tx: cmd_tx,
         }))
         .manage(Mutex::new(StatusState(status_rx)))
+        .manage(LogState { history: log_history })
         .setup(|app| {
             // Build main window with platform-specific title bar style.
             let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
@@ -77,6 +94,26 @@ pub fn run() {
                     }
                     let snapshot = rx.borrow_and_update().clone();
                     let _ = app_handle.emit("status-update", &snapshot);
+                }
+            });
+
+            // Forward log entries to the frontend and accumulate history.
+            let app_handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match log_rx.recv().await {
+                        Some(entry) => {
+                            {
+                                let mut hist = log_history_for_task.lock().unwrap();
+                                hist.push_back(entry.clone());
+                                if hist.len() > 1000 {
+                                    hist.pop_front();
+                                }
+                            }
+                            let _ = app_handle2.emit("log-entry", &entry);
+                        }
+                        None => break,
+                    }
                 }
             });
 
@@ -133,6 +170,7 @@ pub fn run() {
             commands::sync_now,
             commands::pick_folder,
             commands::validate_repo_path,
+            commands::get_log_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
