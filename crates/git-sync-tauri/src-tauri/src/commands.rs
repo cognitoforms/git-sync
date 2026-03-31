@@ -42,6 +42,11 @@ pub fn sync_now(state: State<'_, Mutex<AppState>>, index: usize) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn validate_repo_path(path: String) -> bool {
+    std::path::Path::new(&path).join(".git").exists()
+}
+
+#[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();

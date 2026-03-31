@@ -132,6 +132,7 @@ pub fn run() {
             commands::set_config,
             commands::sync_now,
             commands::pick_folder,
+            commands::validate_repo_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
