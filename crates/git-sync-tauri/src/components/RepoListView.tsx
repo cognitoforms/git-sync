@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, GearSix } from "@phosphor-icons/react";
+
 import { Button } from "@/components/ui/button";
 import { syncNow, formatLastSync } from "@/api";
 import type { AppStatus, DesktopConfig } from "@/types";
-import StatusDot from "./StatusDot";
+import RepoStatusBadge from "./RepoStatusBadge";
 import RepoDetailSidebar from "./RepoDetailSidebar";
 import { Transition } from "react-transition-group";
 
@@ -133,15 +134,7 @@ export default function RepoListView({
                       </td>
                       <td className="px-3 py-2.5 align-middle">
                         {st ? (
-                          <div className="flex items-center gap-1.5">
-                            <StatusDot
-                              id={st.sync_state_id}
-                              syncing={st.is_syncing}
-                            />
-                            <span className="text-foreground">
-                              {st.is_syncing ? "Syncing…" : st.sync_state_label}
-                            </span>
-                          </div>
+                          <RepoStatusBadge status={st} />
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}

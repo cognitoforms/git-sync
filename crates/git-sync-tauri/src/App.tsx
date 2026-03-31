@@ -6,6 +6,9 @@ import {
   setConfig,
 } from "./api";
 import type { AppStatus, DesktopConfig, View } from "./types";
+import { ERROR_LABELS } from "./components/RepoStatusBadge";
+
+const WARNING_CATEGORIES = new Set(["conflict", "conflict_branch"]);
 import TitleBar from "./components/TitleBar";
 import RepoListView from "./components/RepoListView";
 import RepoSettingsView from "./components/RepoSettingsView";
@@ -14,7 +17,8 @@ const EMPTY_CONFIG: DesktopConfig = { repositories: [] };
 const EMPTY_STATUS: AppStatus = { repos: [] };
 
 const STATUS_PRIORITY: Record<string, number> = {
-  error: 5,
+  "error-critical": 6,
+  "error-warning": 5,
   diverged: 4,
   syncing: 3,
   ahead: 2,
@@ -25,13 +29,21 @@ const STATUS_PRIORITY: Record<string, number> = {
 function aggregateStatus(status: AppStatus): { id: string; label: string } {
   const worst = status.repos.reduce<{ id: string; label: string } | null>(
     (acc, r) => {
-      const effectiveId = r.is_syncing ? "syncing" : r.sync_state_id;
+      let effectiveId: string;
+      let effectiveLabel: string;
+      if (r.is_syncing) {
+        effectiveId = "syncing";
+        effectiveLabel = "Syncing…";
+      } else if (r.error) {
+        effectiveId = WARNING_CATEGORIES.has(r.error.category) ? "error-warning" : "error-critical";
+        effectiveLabel = ERROR_LABELS[r.error.category] ?? "Sync error";
+      } else {
+        effectiveId = r.sync_state_id;
+        effectiveLabel = r.sync_state_label;
+      }
       const p = STATUS_PRIORITY[effectiveId] ?? 0;
       if (!acc || p > (STATUS_PRIORITY[acc.id] ?? 0)) {
-        return {
-          id: effectiveId,
-          label: r.is_syncing ? "Syncing…" : r.sync_state_label,
-        };
+        return { id: effectiveId, label: effectiveLabel };
       }
       return acc;
     },

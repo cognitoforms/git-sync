@@ -1,7 +1,7 @@
 mod event_filter;
 
 use self::event_filter::EventFilter;
-use crate::error::{Result, SyncError};
+use crate::error::{Result, SyncError, SyncErrorSummary};
 use crate::sync::{RepositoryState, RepositorySynchronizer, SyncConfig, SyncState};
 use async_channel::{Receiver, Sender};
 use futures::channel::oneshot;
@@ -54,7 +54,7 @@ pub struct WatchStatusSnapshot {
     pub is_syncing: bool,
     pub is_suspended: bool,
     pub last_successful_sync: Option<chrono::DateTime<chrono::Local>>,
-    pub last_error: Option<String>,
+    pub last_error: Option<SyncErrorSummary>,
     /// Sync state (local vs remote divergence) as of the last completed sync.
     pub last_sync_state: Option<SyncState>,
     /// Repository state (clean, dirty, rebasing, …) as of the last completed sync.
@@ -69,9 +69,13 @@ struct WatchState {
     is_suspended: bool,
     is_syncing: bool,
     last_successful_sync_unix_secs: i64,
-    last_error: Option<String>,
+    last_error: Option<SyncErrorSummary>,
     last_sync_state: Option<SyncState>,
     last_repo_state: Option<RepositoryState>,
+    /// Set when the last sync error requires manual resolution (conflict branch,
+    /// merge conflict, hook rejection). Auto-syncing is paused until the user
+    /// explicitly requests a sync via `WatchCmd::SyncNow`.
+    paused_for_manual_error: bool,
 }
 
 impl Default for WatchState {
@@ -83,6 +87,7 @@ impl Default for WatchState {
             last_error: None,
             last_sync_state: None,
             last_repo_state: None,
+            paused_for_manual_error: false,
         }
     }
 }
@@ -276,7 +281,8 @@ impl WatchManager {
 
         if self.watch_config.sync_on_start {
             info!("Performing initial sync");
-            self.perform_sync(&mut state).await?;
+            // Errors are logged inside perform_sync; don't exit — watch loop continues.
+            let _ = self.perform_sync(&mut state).await;
         }
 
         let (tx, rx) = async_channel::unbounded::<Event>();
@@ -355,7 +361,11 @@ impl WatchManager {
                 res = cmd_fut => match res {
                     Ok(WatchCmd::Suspend) => state.is_suspended = true,
                     Ok(WatchCmd::Resume)  => state.is_suspended = false,
-                    Ok(WatchCmd::SyncNow) => sync_state.request_sync_now(),
+                    Ok(WatchCmd::SyncNow) => {
+                        state.paused_for_manual_error = false;
+                        sync_state.clear_retry_backoff();
+                        sync_state.request_sync_now();
+                    }
                     Err(_) => {} // all handles dropped; keep running
                 },
                 _ = delay_fut => {
@@ -383,7 +393,7 @@ impl WatchManager {
     }
 
     async fn handle_timeout(&self, sync_state: &mut SyncScheduler, state: &mut WatchState) {
-        if state.is_suspended {
+        if state.is_suspended || state.paused_for_manual_error {
             return;
         }
 
@@ -406,14 +416,8 @@ impl WatchManager {
         );
         let _guard = span.enter();
         match self.perform_sync(state).await {
-            Ok(()) => {
-                debug!("perform_sync succeeded");
-                sync_state.on_sync_success();
-            }
-            Err(e) => {
-                sync_state.on_sync_failure(&e);
-                self.log_sync_error(&e);
-            }
+            Ok(()) => sync_state.on_sync_success(),
+            Err(e) => sync_state.on_sync_failure(&e),
         }
     }
 
@@ -458,6 +462,19 @@ impl WatchManager {
                         &repo_path,
                         sync_config,
                     )?;
+                    // If we're on a conflict fallback branch, skip the sync
+                    // entirely and surface it as an error so the UI warning
+                    // stays visible. When the user resolves the conflict and
+                    // checks out the target branch, get_conflict_branch()
+                    // returns None and normal sync resumes on the next cycle.
+                    let conflict_branch = synchronizer.get_conflict_branch();
+                    if let Some(branch) = conflict_branch {
+                        return Ok::<SyncOutcome, crate::error::SyncError>(SyncOutcome {
+                            result: Err(SyncError::OnConflictBranch { branch }),
+                            sync_state: synchronizer.get_sync_state().ok(),
+                            repo_state: synchronizer.get_repository_state().ok(),
+                        });
+                    }
                     let result = synchronizer.sync(false);
                     let sync_state = synchronizer.get_sync_state().ok();
                     let repo_state = synchronizer.get_repository_state().ok();
@@ -496,15 +513,22 @@ impl WatchManager {
         if outcome.result.is_ok() {
             state.last_successful_sync_unix_secs = chrono::Utc::now().timestamp();
             state.last_error = None;
+            state.paused_for_manual_error = false;
         } else {
-            state.last_error = outcome.result.as_ref().err().map(ToString::to_string);
+            state.last_error = outcome.result.as_ref().err().map(SyncErrorSummary::from);
+            state.paused_for_manual_error = matches!(
+                &outcome.result,
+                Err(SyncError::OnConflictBranch { .. })
+                    | Err(SyncError::ManualInterventionRequired { .. })
+                    | Err(SyncError::HookRejected { .. })
+            );
         }
         self.update_tx.try_send(state.snapshot()).ok();
 
         if let Err(ref err) = outcome.result {
-            error!(error = %err, "perform_sync finished with error");
+            self.log_sync_error(err);
         } else {
-            debug!("perform_sync finished successfully");
+            debug!("Sync completed successfully");
         }
 
         outcome.result
@@ -540,6 +564,10 @@ impl WatchManager {
                 klass = ?err.class(),
                 message = %err.message(),
                 "Git error during sync; will retry"
+            ),
+            SyncError::OnConflictBranch { branch } => warn!(
+                branch = %branch,
+                "Sync paused: on conflict branch; merge branch and sync again"
             ),
             other => error!(error = %other, "Sync failed; will retry"),
         }
@@ -593,6 +621,11 @@ impl SyncScheduler {
             next_retry_at: None,
             retry_backoff: Self::RETRY_BACKOFF_INITIAL,
         }
+    }
+
+    fn clear_retry_backoff(&mut self) {
+        self.next_retry_at = None;
+        self.retry_backoff = Self::RETRY_BACKOFF_INITIAL;
     }
 
     fn mark_file_event(&mut self) {
@@ -687,9 +720,9 @@ impl SyncScheduler {
 
     fn retry_delay_for(&mut self, error: &SyncError) -> Duration {
         match error {
-            SyncError::ManualInterventionRequired { .. } | SyncError::HookRejected { .. } => {
-                Self::RETRY_DELAY_MANUAL
-            }
+            SyncError::ManualInterventionRequired { .. }
+            | SyncError::HookRejected { .. }
+            | SyncError::OnConflictBranch { .. } => Self::RETRY_DELAY_MANUAL,
             SyncError::NoRemoteConfigured { .. }
             | SyncError::RemoteBranchNotFound { .. }
             | SyncError::NotARepository { .. } => Self::RETRY_DELAY_CONFIG,

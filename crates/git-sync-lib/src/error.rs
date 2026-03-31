@@ -49,9 +49,30 @@ pub enum SyncError {
 
     #[error("Other error: {0}")]
     Other(String),
+
+    #[error("Conflict branch active: {branch}")]
+    OnConflictBranch { branch: String },
 }
 
 impl SyncError {
+    /// Get a short category string for this error type.
+    pub fn category(&self) -> &'static str {
+        match self {
+            SyncError::AuthenticationFailed { .. } => "auth",
+            SyncError::NetworkError(_) => "network",
+            SyncError::ManualInterventionRequired { .. } | SyncError::HookRejected { .. } => {
+                "conflict"
+            }
+            SyncError::NoRemoteConfigured { .. }
+            | SyncError::RemoteBranchNotFound { .. }
+            | SyncError::NotARepository { .. }
+            | SyncError::BranchNotConfigured { .. } => "config",
+            SyncError::DetachedHead | SyncError::UnsafeRepositoryState { .. } => "state",
+            SyncError::OnConflictBranch { .. } => "conflict_branch",
+            _ => "unknown",
+        }
+    }
+
     /// Get the exit code for this error type, matching the original git-sync
     pub fn exit_code(&self) -> i32 {
         match self {
@@ -66,6 +87,7 @@ impl SyncError {
             SyncError::AuthenticationFailed { .. } => 3,
             SyncError::GitCommandFailed { .. } => 2,
             SyncError::HookRejected { .. } => 1,
+            SyncError::OnConflictBranch { .. } => 1,
             SyncError::GitError(e) => match e.code() {
                 git2::ErrorCode::NotFound => 128,
                 git2::ErrorCode::Conflict => 1,
@@ -77,6 +99,30 @@ impl SyncError {
             SyncError::TaskError(_) => 2,
             SyncError::Other(_) => 2,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SyncErrorExtra {
+    ConflictBranch { branch: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct SyncErrorSummary {
+    pub message: String,
+    pub category: &'static str,
+    pub extra: Option<SyncErrorExtra>,
+}
+
+impl From<&SyncError> for SyncErrorSummary {
+    fn from(e: &SyncError) -> Self {
+        let extra = match e {
+            SyncError::OnConflictBranch { branch } => {
+                Some(SyncErrorExtra::ConflictBranch { branch: branch.clone() })
+            }
+            _ => None,
+        };
+        Self { message: e.to_string(), category: e.category(), extra }
     }
 }
 
