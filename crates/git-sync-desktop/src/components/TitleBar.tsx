@@ -1,11 +1,14 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { platform } from "@tauri-apps/plugin-os";
 import { ArrowLeft, Minus, Moon, Square, Sun, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useIsFullscreen } from "@/hooks/useIsFullscreen";
 import { useTheme } from "./ThemeProvider";
 import StatusDot from "./StatusDot";
 
 const appWindow = getCurrentWindow();
+const IS_MAC = platform() === "macos";
 
 interface Props {
 	inSettings: boolean;
@@ -25,6 +28,7 @@ export default function TitleBar({
 	className,
 }: Props) {
 	const { resolvedTheme, setTheme } = useTheme();
+	const isFullscreen = useIsFullscreen();
 
 	return (
 		<div
@@ -35,7 +39,10 @@ export default function TitleBar({
 		>
 			{/* Drag region — fills all space between left content and window controls */}
 			<div
-				className="flex h-full min-w-0 flex-1 items-center gap-2 overflow-hidden px-2"
+				className={cn(
+					"flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-hidden",
+					IS_MAC && !isFullscreen ? "pl-[82px]" : "px-2",
+				)}
 				data-tauri-drag-region
 			>
 				{inSettings ? (
@@ -85,27 +92,31 @@ export default function TitleBar({
 				>
 					{resolvedTheme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
 				</Button>
-				<button
-					onClick={() => appWindow.minimize()}
-					className="text-foreground/70 hover:bg-muted hover:text-foreground flex h-full w-10 items-center justify-center transition-colors"
-					aria-label="Minimize"
-				>
-					<Minus size={12} weight="bold" />
-				</button>
-				<button
-					onClick={() => appWindow.toggleMaximize()}
-					className="text-foreground/70 hover:bg-muted hover:text-foreground flex h-full w-10 items-center justify-center transition-colors"
-					aria-label="Maximize"
-				>
-					<Square size={11} />
-				</button>
-				<button
-					onClick={() => appWindow.close()}
-					className="text-foreground/70 flex h-full w-10 items-center justify-center transition-colors hover:bg-red-500 hover:text-white"
-					aria-label="Close"
-				>
-					<X size={13} weight="bold" />
-				</button>
+				{!IS_MAC && (
+					<>
+						<button
+							onClick={() => appWindow.minimize()}
+							className="text-foreground/70 hover:bg-muted hover:text-foreground flex h-full w-10 items-center justify-center transition-colors"
+							aria-label="Minimize"
+						>
+							<Minus size={12} weight="bold" />
+						</button>
+						<button
+							onClick={() => appWindow.toggleMaximize()}
+							className="text-foreground/70 hover:bg-muted hover:text-foreground flex h-full w-10 items-center justify-center transition-colors"
+							aria-label="Maximize"
+						>
+							<Square size={11} />
+						</button>
+						<button
+							onClick={() => appWindow.close()}
+							className="text-foreground/70 flex h-full w-10 items-center justify-center transition-colors hover:bg-red-500 hover:text-white"
+							aria-label="Close"
+						>
+							<X size={13} weight="bold" />
+						</button>
+					</>
+				)}
 			</div>
 		</div>
 	);

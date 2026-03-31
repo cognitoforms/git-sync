@@ -10,18 +10,6 @@
 		"frontendDist": "../dist"
 	},
 	"app": {
-		"windows": [
-			{
-				"label": "main",
-				"title": "Git Sync",
-				"width": 680,
-				"height": 520,
-				"minWidth": 520,
-				"minHeight": 440,
-				"decorations": false,
-				"shadow": true
-			}
-		],
 		"security": {
 			"csp": null
 		}
