@@ -24,7 +24,10 @@ function aggregateStatus(status: AppStatus): { id: string; label: string } {
       const effectiveId = r.is_syncing ? "syncing" : r.sync_state_id;
       const p = STATUS_PRIORITY[effectiveId] ?? 0;
       if (!acc || p > (STATUS_PRIORITY[acc.id] ?? 0)) {
-        return { id: effectiveId, label: r.is_syncing ? "Syncing…" : r.sync_state_label };
+        return {
+          id: effectiveId,
+          label: r.is_syncing ? "Syncing…" : r.sync_state_label,
+        };
       }
       return acc;
     },
@@ -37,14 +40,13 @@ function titleForView(view: View): string {
   if (view.kind === "settings") {
     return view.idx !== null ? "Repository Settings" : "Add Repository";
   }
-  return "git-sync";
+  return "Git Sync";
 }
 
 export default function App() {
   const [config, setConfigState] = useState<DesktopConfig>(EMPTY_CONFIG);
   const [status, setStatus] = useState<AppStatus>(EMPTY_STATUS);
   const [view, setView] = useState<View>({ kind: "list" });
-  const [showAbout, setShowAbout] = useState(false);
 
   useEffect(() => {
     getConfig().then(setConfigState).catch(console.error);
@@ -78,7 +80,6 @@ export default function App() {
             config={config}
             status={status}
             onOpenSettings={(idx) => setView({ kind: "settings", idx })}
-            onAbout={() => setShowAbout(true)}
           />
         )}
         {view.kind === "settings" && (
@@ -90,7 +91,6 @@ export default function App() {
           />
         )}
       </div>
-      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
     </div>
   );
 }

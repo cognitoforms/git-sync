@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { FolderOpen } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { pickFolder } from "@/api";
+import type React from "react";
 import type { DesktopConfig, RepoConfig } from "@/types";
 
 interface Props {
@@ -64,7 +66,7 @@ export default function RepoSettingsView({ config, idx, onSave, onBack }: Props)
           <Field label="Display name (optional)">
             <Input
               value={form.name}
-              onChange={(v) => set({ name: v })}
+              onChange={(e) => set({ name: e.target.value })}
               placeholder="my-project"
             />
           </Field>
@@ -74,10 +76,10 @@ export default function RepoSettingsView({ config, idx, onSave, onBack }: Props)
               <Input
                 className="flex-1"
                 value={form.repo_path}
-                onChange={(v) => set({ repo_path: v })}
+                onChange={(e) => set({ repo_path: e.target.value })}
                 placeholder="/path/to/repo"
               />
-              <Button variant="outline" size="sm" onClick={handleBrowse} disabled={picking}>
+              <Button variant="outline" size="sm" onClick={handleBrowse} disabled={picking} className="self-stretch h-auto">
                 <FolderOpen weight="bold" />
                 {picking ? "…" : "Browse"}
               </Button>
@@ -85,27 +87,27 @@ export default function RepoSettingsView({ config, idx, onSave, onBack }: Props)
           </Field>
 
           <Field label="Remote">
-            <Input value={form.remote} onChange={(v) => set({ remote: v })} placeholder="origin" />
+            <Input value={form.remote} onChange={(e) => set({ remote: e.target.value })} placeholder="origin" />
           </Field>
 
           <Field label="Branch (leave blank to auto-detect)">
-            <Input value={form.branch} onChange={(v) => set({ branch: v })} placeholder="main" />
+            <Input value={form.branch} onChange={(e) => set({ branch: e.target.value })} placeholder="main" />
           </Field>
 
           <Field label="Sync interval (seconds)">
-            <input
+            <Input
               type="number"
               min={10}
               value={form.interval_secs}
               onChange={(e) => set({ interval_secs: Math.max(10, Number(e.target.value)) })}
-              className="w-28 h-8 px-2 text-xs bg-background border border-input rounded-none outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
+              className="w-28"
             />
           </Field>
 
           <Field label="Commit message (leave blank for default)">
             <Input
               value={form.commit_message}
-              onChange={(v) => set({ commit_message: v })}
+              onChange={(e) => set({ commit_message: e.target.value })}
               placeholder="changes from {hostname} on {timestamp}"
             />
           </Field>
@@ -161,30 +163,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Input({
-  value,
-  onChange,
-  placeholder,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className={cn(
-        "h-8 w-full px-2 text-xs bg-background border border-input rounded-none outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 placeholder:text-muted-foreground",
-        className,
-      )}
-    />
-  );
-}
-
 function CheckField({
   label,
   checked,
@@ -196,12 +174,7 @@ function CheckField({
 }) {
   return (
     <label className="flex items-center gap-2.5 cursor-pointer text-xs text-foreground select-none">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-3.5 rounded-none accent-primary"
-      />
+      <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />
       {label}
     </label>
   );
