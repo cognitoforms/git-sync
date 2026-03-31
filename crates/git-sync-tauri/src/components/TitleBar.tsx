@@ -3,6 +3,7 @@ import { platform } from "@tauri-apps/plugin-os";
 import { ArrowLeft, Minus, Moon, Square, Sun, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useIsFullscreen } from "@/hooks/useIsFullscreen";
 import { useTheme } from "./ThemeProvider";
 import StatusDot from "./StatusDot";
 
@@ -27,6 +28,7 @@ export default function TitleBar({
   className,
 }: Props) {
   const { resolvedTheme, setTheme } = useTheme();
+  const isFullscreen = useIsFullscreen();
 
   return (
     <div
@@ -39,7 +41,7 @@ export default function TitleBar({
       <div
         className={cn(
           "flex flex-1 items-center gap-0.5 h-full min-w-0 overflow-hidden",
-          IS_MAC ? "pl-[82px]" : "px-2",
+          IS_MAC && !isFullscreen ? "pl-[82px]" : "px-2",
         )}
         data-tauri-drag-region
       >
