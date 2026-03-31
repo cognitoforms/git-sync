@@ -131,8 +131,12 @@ export default function RepoListView({
 			</div>
 
 			{/* Footer */}
-			<div className="border-border border-t px-3 py-2.5">
-				<Button size="sm" onClick={() => onOpenSettings(null)}>
+			<div className="border-border flex border-t px-3 py-2.5">
+				<Button
+					className="ml-auto"
+					size="sm"
+					onClick={() => onOpenSettings(null)}
+				>
 					+ Add Repository
 				</Button>
 			</div>

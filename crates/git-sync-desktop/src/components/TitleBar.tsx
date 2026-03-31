@@ -57,7 +57,7 @@ export default function TitleBar({
 				) : (
 					<StatusDot
 						id={aggStatusId ?? "unknown"}
-						className="mr-1 ml-2 shrink-0"
+						className="mr-2.5 ml-2 shrink-0"
 					/>
 				)}
 				<div
