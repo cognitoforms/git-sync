@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AppStatus, DesktopConfig } from "./types";
+import type { AppStatus, DesktopConfig, LogEntry } from "./types";
 
 export const getConfig = () => invoke<DesktopConfig>("get_config");
 export const getStatus = () => invoke<AppStatus>("get_status");
@@ -16,6 +16,12 @@ export const pickFolder = () =>
 
 export const onStatusUpdate = (cb: (s: AppStatus) => void) =>
 	listen<AppStatus>("status-update", (e) => cb(e.payload));
+
+export const getLogHistory = (repo?: string) =>
+	invoke<LogEntry[]>("get_log_history", { repo: repo ?? null });
+
+export const onLogEntry = (cb: (entry: LogEntry) => void) =>
+	listen<LogEntry>("log-entry", (e) => cb(e.payload));
 
 export function formatLastSync(lastSyncTime: string | null): string {
 	if (!lastSyncTime) return "Never";

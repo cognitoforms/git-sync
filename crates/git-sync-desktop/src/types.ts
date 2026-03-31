@@ -28,6 +28,13 @@ export interface AppStatus {
 	repos: RepoStatus[];
 }
 
+export interface LogEntry {
+	timestamp: string;
+	level: "info" | "warn" | "error";
+	message: string;
+	repo: string | null;
+}
+
 export type View =
 	| { kind: "list" }
 	| { kind: "settings"; idx: number | null }
