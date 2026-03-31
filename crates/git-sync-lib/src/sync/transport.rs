@@ -152,6 +152,16 @@ impl CommandGitTransport {
             };
         }
 
+        if stderr_lower.contains("failed to connect")
+            || stderr_lower.contains("could not connect to server")
+            || stderr_lower.contains("could not resolve host")
+            || stderr_lower.contains("connection timed out")
+            || stderr_lower.contains("network is unreachable")
+            || stderr_lower.contains("unable to access")
+        {
+            return SyncError::NetworkError(stderr.trim().to_string());
+        }
+
         SyncError::GitCommandFailed {
             command: command.to_string(),
             stderr: stderr.trim().to_string(),
@@ -312,6 +322,18 @@ mod tests {
             None,
         );
         assert!(matches!(err, SyncError::HookRejected { .. }));
+    }
+
+    #[test]
+    fn classifies_network_errors() {
+        let transport = CommandGitTransport;
+        let err = transport.classify_git_error(
+            "git fetch origin main",
+            "fatal: unable to access 'https://github.com/org/repo/': Failed to connect to github.com port 443 after 3 ms: Could not connect to server",
+            Some("origin"),
+            Some("main"),
+        );
+        assert!(matches!(err, SyncError::NetworkError(_)));
     }
 
     #[test]

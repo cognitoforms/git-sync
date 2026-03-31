@@ -655,6 +655,14 @@ impl RepositorySynchronizer {
         Ok(current.starts_with(FALLBACK_BRANCH_PREFIX))
     }
 
+    /// Returns the current branch name if we are currently on a conflict fallback branch.
+    pub fn get_conflict_branch(&self) -> Option<String> {
+        match (self.is_on_fallback_branch(), self.get_current_branch()) {
+            (Ok(true), Ok(branch)) => Some(branch),
+            _ => None,
+        }
+    }
+
     /// Generate a fallback branch name
     fn generate_fallback_branch_name() -> String {
         let hostname = hostname::get()

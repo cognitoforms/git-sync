@@ -3,7 +3,17 @@ import { ArrowsClockwise, GearSix, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { formatLastSync, getLogHistory, onLogEntry } from "@/api";
 import type { LogEntry, RepoConfig, RepoStatus } from "@/types";
-import StatusDot from "./StatusDot";
+import RepoStatusBadge, { ERROR_LABELS } from "./RepoStatusBadge";
+
+const ERROR_HINTS: Record<string, string> = {
+	auth: "Check your SSH keys or repository credentials.",
+	network: "Check your network connection and try again.",
+	conflict:
+		"Open the repository in a Git client to resolve the conflicts, then sync again.",
+	config: "Review the repository settings (remote, branch).",
+	state:
+		"The repository is in an intermediate Git state. It may resolve automatically.",
+};
 
 const LOG_CAP = 200;
 
@@ -86,15 +96,7 @@ export default function RepoDetailSidebar({
 			<div className="border-border space-y-1 border-b p-3">
 				{status ? (
 					<>
-						<div className="flex items-center gap-1.5 text-sm">
-							<StatusDot
-								id={status.sync_state_id}
-								syncing={status.is_syncing}
-							/>
-							<span>
-								{status.is_syncing ? "Syncing…" : status.sync_state_label}
-							</span>
-						</div>
+						<RepoStatusBadge status={status} className="text-sm" />
 						{status.repo_state_label && (
 							<div className="text-muted-foreground text-xs">
 								{status.repo_state_label}
@@ -103,11 +105,33 @@ export default function RepoDetailSidebar({
 						<div className="text-muted-foreground text-xs">
 							Last sync: {formatLastSync(status.last_sync_time)}
 						</div>
-						{status.error && (
-							<div className="mt-1 rounded bg-red-50 p-1.5 text-xs text-red-600 dark:bg-red-950/20">
-								{status.error}
-							</div>
-						)}
+						{status.error &&
+							(status.error.category === "conflict_branch" ? (
+								<div className="mt-1 space-y-1 rounded bg-amber-50 p-1.5 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
+									<div className="font-medium">Conflict branch active</div>
+									<div>
+										Changes saved to{" "}
+										<span className="font-mono">{status.error.branch}</span>
+									</div>
+									<div className="italic">
+										Merge this branch into your target branch, then sync again.
+									</div>
+								</div>
+							) : (
+								<div className="mt-1 space-y-1 rounded bg-red-50 p-1.5 text-xs text-red-700 dark:bg-red-950/20 dark:text-red-400">
+									<div className="font-medium">
+										{ERROR_LABELS[status.error.category] ?? "Sync error"}
+									</div>
+									<div className="text-red-600 dark:text-red-500">
+										{status.error.message}
+									</div>
+									{ERROR_HINTS[status.error.category] && (
+										<div className="text-red-500/80 italic dark:text-red-400/70">
+											{ERROR_HINTS[status.error.category]}
+										</div>
+									)}
+								</div>
+							))}
 					</>
 				) : (
 					<div className="text-muted-foreground text-sm">Loading…</div>

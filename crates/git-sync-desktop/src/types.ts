@@ -10,13 +10,22 @@ export interface RepoConfig {
 	conflict_branch: boolean;
 }
 
+export type SyncError =
+	| { category: "auth"; message: string }
+	| { category: "network"; message: string }
+	| { category: "conflict"; message: string }
+	| { category: "conflict_branch"; branch: string; message: string }
+	| { category: "config"; message: string }
+	| { category: "state"; message: string }
+	| { category: "unknown"; message: string };
+
 export interface RepoStatus {
 	repo_path: string;
 	sync_state_label: string;
 	sync_state_id: string;
 	repo_state_label: string;
 	is_syncing: boolean;
-	error: string | null;
+	error: SyncError | null;
 	last_sync_time: string | null; // ISO 8601 timestamp
 }
 

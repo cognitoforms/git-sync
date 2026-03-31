@@ -1,5 +1,38 @@
-use git_sync_lib::{RepositoryState, SyncState};
+use git_sync_lib::{RepositoryState, SyncErrorExtra, SyncErrorSummary, SyncState};
 use serde::Serialize;
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "category", rename_all = "snake_case")]
+pub enum SyncErrorPayload {
+    Auth           { message: String },
+    Network        { message: String },
+    Conflict       { message: String },
+    ConflictBranch { branch: String, message: String },
+    Config         { message: String },
+    State          { message: String },
+    Unknown        { message: String },
+}
+
+impl From<&SyncErrorSummary> for SyncErrorPayload {
+    fn from(s: &SyncErrorSummary) -> Self {
+        let msg = s.message.clone();
+        match s.category {
+            "auth"            => Self::Auth     { message: msg },
+            "network"         => Self::Network  { message: msg },
+            "conflict"        => Self::Conflict { message: msg },
+            "conflict_branch" => {
+                let branch = match &s.extra {
+                    Some(SyncErrorExtra::ConflictBranch { branch }) => branch.clone(),
+                    _ => String::new(),
+                };
+                Self::ConflictBranch { branch, message: msg }
+            }
+            "config" => Self::Config { message: msg },
+            "state"  => Self::State  { message: msg },
+            _        => Self::Unknown { message: msg },
+        }
+    }
+}
 
 #[derive(Serialize, Clone, Debug)]
 pub struct RepoStatus {
@@ -9,7 +42,7 @@ pub struct RepoStatus {
     pub sync_state_id: String,
     pub repo_state_label: String,
     pub is_syncing: bool,
-    pub error: Option<String>,
+    pub error: Option<SyncErrorPayload>,
     pub last_sync_time: Option<chrono::DateTime<chrono::Local>>,
 }
 
