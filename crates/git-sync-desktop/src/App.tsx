@@ -7,8 +7,21 @@ const WARNING_CATEGORIES = new Set(["conflict", "conflict_branch"]);
 import TitleBar from "./components/TitleBar";
 import RepoListView from "./components/RepoListView";
 import RepoSettingsView from "./components/RepoSettingsView";
+import GlobalSettingsView from "./components/GlobalSettingsView";
 
-const EMPTY_CONFIG: DesktopConfig = { repositories: [] };
+const EMPTY_CONFIG: DesktopConfig = {
+	global: {
+		remote: "origin",
+		interval_secs: 60,
+		commit_message: "",
+		sync_new_files: true,
+		skip_hooks: false,
+		conflict_branch: true,
+		sync_on_start: true,
+		debounce_ms: 500,
+	},
+	repositories: [],
+};
 const EMPTY_STATUS: AppStatus = { repos: [] };
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -53,6 +66,9 @@ function titleForView(view: View): string {
 	if (view.kind === "settings") {
 		return view.idx !== null ? "Repository Settings" : "Add Repository";
 	}
+	if (view.kind === "global-settings") {
+		return "Global Settings";
+	}
 	return "Git Sync";
 }
 
@@ -81,7 +97,7 @@ export default function App() {
 	return (
 		<div className="bg-background text-foreground flex h-screen flex-col">
 			<TitleBar
-				inSettings={view.kind === "settings"}
+				inSettings={view.kind === "settings" || view.kind === "global-settings"}
 				title={titleForView(view)}
 				aggStatusId={agg.id}
 				aggStatusLabel={agg.label}
@@ -93,12 +109,21 @@ export default function App() {
 						config={config}
 						status={status}
 						onOpenSettings={(idx) => setView({ kind: "settings", idx })}
+						onOpenGlobalSettings={() => setView({ kind: "global-settings" })}
 					/>
 				)}
 				{view.kind === "settings" && (
 					<RepoSettingsView
 						config={config}
 						idx={view.idx}
+						globalSettings={config.global}
+						onSave={handleSave}
+						onBack={() => setView({ kind: "list" })}
+					/>
+				)}
+				{view.kind === "global-settings" && (
+					<GlobalSettingsView
+						config={config}
 						onSave={handleSave}
 						onBack={() => setView({ kind: "list" })}
 					/>

@@ -28,9 +28,9 @@ fn build_sync_config(cfg: &RepoConfig) -> SyncConfig {
 
 fn build_watch_config(cfg: &RepoConfig) -> WatchConfig {
     WatchConfig {
-        debounce_ms: 500,
+        debounce_ms: cfg.debounce_ms,
         min_interval_ms: 5_000,
-        sync_on_start: true,
+        sync_on_start: cfg.sync_on_start,
         dry_run: false,
         periodic_sync_interval_ms: Some(cfg.interval_secs * 1_000),
     }

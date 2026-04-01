@@ -15,6 +15,8 @@ pub struct RepoConfig {
     pub skip_hooks: bool,
     pub conflict_branch: bool,
     pub commit_message: String,
+    pub sync_on_start: bool,
+    pub debounce_ms: u64,
 }
 
 impl Default for RepoConfig {
@@ -29,6 +31,36 @@ impl Default for RepoConfig {
             skip_hooks: false,
             conflict_branch: true,
             commit_message: String::new(),
+            sync_on_start: true,
+            debounce_ms: 500,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct GlobalSettings {
+    pub remote: String,
+    pub interval_secs: u64,
+    pub commit_message: String,
+    pub sync_new_files: bool,
+    pub skip_hooks: bool,
+    pub conflict_branch: bool,
+    pub sync_on_start: bool,
+    pub debounce_ms: u64,
+}
+
+impl Default for GlobalSettings {
+    fn default() -> Self {
+        Self {
+            remote: "origin".to_string(),
+            interval_secs: 60,
+            commit_message: String::new(),
+            sync_new_files: true,
+            skip_hooks: false,
+            conflict_branch: true,
+            sync_on_start: true,
+            debounce_ms: 500,
         }
     }
 }
@@ -49,6 +81,8 @@ impl RepoConfig {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct DesktopConfig {
+    #[serde(default)]
+    pub global: GlobalSettings,
     pub repositories: Vec<RepoConfig>,
 }
 

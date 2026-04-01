@@ -8,11 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { pickFolder, validateRepoPath } from "@/api";
-import type { DesktopConfig } from "@/types";
+import type { DesktopConfig, GlobalSettings } from "@/types";
 
 interface Props {
 	config: DesktopConfig;
 	idx: number | null;
+	globalSettings: GlobalSettings;
 	onSave: (newConfig: DesktopConfig) => void;
 	onBack: () => void;
 }
@@ -27,29 +28,34 @@ const schema = z.object({
 	sync_new_files: z.boolean(),
 	skip_hooks: z.boolean(),
 	conflict_branch: z.boolean(),
+	sync_on_start: z.boolean(),
+	debounce_ms: z.coerce.number().int().min(0, "Minimum 0"),
 });
 
 type FormValues = z.infer<typeof schema>;
 
-const DEFAULT_VALUES: FormValues = {
-	name: "",
-	repo_path: "",
-	remote: "origin",
-	branch: "",
-	interval_secs: 60,
-	commit_message: "",
-	sync_new_files: true,
-	skip_hooks: false,
-	conflict_branch: true,
-};
-
 export default function RepoSettingsView({
 	config,
 	idx,
+	globalSettings,
 	onSave,
 	onBack,
 }: Props) {
 	const existing = idx !== null ? config.repositories[idx] : null;
+
+	const defaultValues: FormValues = {
+		name: "",
+		repo_path: "",
+		remote: globalSettings.remote,
+		branch: "",
+		interval_secs: globalSettings.interval_secs,
+		commit_message: globalSettings.commit_message,
+		sync_new_files: globalSettings.sync_new_files,
+		skip_hooks: globalSettings.skip_hooks,
+		conflict_branch: globalSettings.conflict_branch,
+		sync_on_start: globalSettings.sync_on_start,
+		debounce_ms: globalSettings.debounce_ms,
+	};
 
 	const {
 		control,
@@ -59,7 +65,7 @@ export default function RepoSettingsView({
 		formState: { errors, isValid },
 	} = useForm<FormValues>({
 		resolver: standardSchemaResolver(schema),
-		defaultValues: existing ?? DEFAULT_VALUES,
+		defaultValues: existing ?? defaultValues,
 		mode: "onBlur",
 	});
 
@@ -177,6 +183,18 @@ export default function RepoSettingsView({
 							<FieldError errors={[errors.interval_secs]} />
 						</Field>
 
+						<Field data-invalid={!!errors.debounce_ms}>
+							<FieldLabel>File change debounce (ms)</FieldLabel>
+							<Controller
+								name="debounce_ms"
+								control={control}
+								render={({ field }) => (
+									<Input type="number" min={0} {...field} className="w-28" />
+								)}
+							/>
+							<FieldError errors={[errors.debounce_ms]} />
+						</Field>
+
 						<Field>
 							<FieldLabel>Commit message (leave blank for default)</FieldLabel>
 							<Controller
@@ -193,7 +211,7 @@ export default function RepoSettingsView({
 
 						<div className="flex flex-col gap-2.5 pt-1">
 							{(
-								["sync_new_files", "skip_hooks", "conflict_branch"] as const
+								["sync_new_files", "skip_hooks", "conflict_branch", "sync_on_start"] as const
 							).map((name) => (
 								<Controller
 									key={name}
@@ -211,6 +229,7 @@ export default function RepoSettingsView({
 													skip_hooks: "Skip git hooks on commit",
 													conflict_branch:
 														"Create conflict branch on merge conflict",
+													sync_on_start: "Sync when app starts",
 												}[name]
 											}
 										</label>

@@ -12,12 +12,14 @@ interface Props {
 	config: DesktopConfig;
 	status: AppStatus;
 	onOpenSettings: (idx: number | null) => void;
+	onOpenGlobalSettings: () => void;
 }
 
 export default function RepoListView({
 	config,
 	status,
 	onOpenSettings,
+	onOpenGlobalSettings,
 }: Props) {
 	const [, setTick] = useState(0);
 	const [selectedRepo, setSelectedRepo] = useState<number | null>(null);
@@ -190,7 +192,15 @@ export default function RepoListView({
 				</div>
 
 				{/* Footer */}
-				<div className="border-border flex border-t px-3 py-2.5">
+				<div className="border-border flex items-center border-t px-3 py-2.5 gap-2">
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onClick={onOpenGlobalSettings}
+						title="Global settings"
+					>
+						<GearSix weight="bold" />
+					</Button>
 					<Button
 						className="ml-auto"
 						size="sm"

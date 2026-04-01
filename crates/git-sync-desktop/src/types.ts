@@ -8,6 +8,19 @@ export interface RepoConfig {
 	sync_new_files: boolean;
 	skip_hooks: boolean;
 	conflict_branch: boolean;
+	sync_on_start: boolean;
+	debounce_ms: number;
+}
+
+export interface GlobalSettings {
+	remote: string;
+	interval_secs: number;
+	commit_message: string;
+	sync_new_files: boolean;
+	skip_hooks: boolean;
+	conflict_branch: boolean;
+	sync_on_start: boolean;
+	debounce_ms: number;
 }
 
 export type SyncError =
@@ -30,6 +43,7 @@ export interface RepoStatus {
 }
 
 export interface DesktopConfig {
+	global: GlobalSettings;
 	repositories: RepoConfig[];
 }
 
@@ -47,4 +61,5 @@ export interface LogEntry {
 export type View =
 	| { kind: "list" }
 	| { kind: "settings"; idx: number | null }
+	| { kind: "global-settings" }
 	| { kind: "about" };
