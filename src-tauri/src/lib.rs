@@ -42,6 +42,8 @@ mod tests {
                 commands::get_log_history,
                 commands::get_conflict_info,
                 commands::resolve_conflict,
+                commands::get_conflict_files_content,
+                commands::complete_conflict_merge,
             ])
             .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 
@@ -118,6 +120,9 @@ pub fn run() {
             commands::pick_folder,
             commands::get_log_history,
             commands::get_conflict_info,
+            commands::resolve_conflict,
+            commands::get_conflict_files_content,
+            commands::complete_conflict_merge,
         ])
         .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 

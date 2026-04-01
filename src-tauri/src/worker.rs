@@ -24,6 +24,17 @@ pub enum BgCmd {
         index: usize,
         strategy: ConflictResolutionStrategy,
     },
+    CompleteMerge {
+        index: usize,
+        resolved: Vec<ResolvedFileEntry>,
+    },
+}
+
+/// Serialisable version of `ResolvedFileContent` passed from the frontend.
+#[derive(Clone)]
+pub struct ResolvedFileEntry {
+    pub path: String,
+    pub content: String,
 }
 
 pub fn build_sync_config_pub(cfg: &RepoConfig) -> SyncConfig {
@@ -142,6 +153,22 @@ async fn run_bg_async(
                                 }
                             }
                         }
+                        Some(BgCmd::CompleteMerge { index: idx, resolved }) => {
+                            if let Some(handle) = task_handles.get(idx) {
+                                handle.abort();
+                            }
+                            if let Some(repo_cfg) = cfg.repositories.get(idx).cloned() {
+                                tokio::task::yield_now().await;
+                                let status_tx_clone = Arc::clone(&status_tx);
+                                let handle = join_set.spawn_local(async move {
+                                    run_complete_merge(idx, &repo_cfg, resolved, status_tx_clone).await;
+                                    idx
+                                });
+                                if idx < task_handles.len() {
+                                    task_handles[idx] = handle;
+                                }
+                            }
+                        }
                         None => return,
                     }
                 }
@@ -199,6 +226,59 @@ async fn run_resolve(
                 Ok(()) => {
                     rs.error = None;
                     rs.sync_state_label = "Resolved".to_string();
+                    rs.sync_state_id = "ok".to_string();
+                }
+                Err(ref e) => {
+                    rs.error = Some(SyncErrorPayload::from(
+                        &git_sync_lib::SyncErrorSummary::from(e),
+                    ));
+                }
+            }
+            true
+        } else {
+            false
+        }
+    });
+}
+
+async fn run_complete_merge(
+    idx: usize,
+    cfg: &RepoConfig,
+    resolved: Vec<ResolvedFileEntry>,
+    status_tx: Arc<watch::Sender<AppStatus>>,
+) {
+    use git_sync_lib::{RepositorySynchronizer, ResolvedFileContent};
+
+    status_tx.send_if_modified(|s| {
+        if let Some(rs) = s.repos.get_mut(idx) {
+            rs.sync_state_label = "Merging…".to_string();
+            rs.sync_state_id = "syncing".to_string();
+            rs.is_syncing = true;
+            rs.error = None;
+            true
+        } else {
+            false
+        }
+    });
+
+    let resolved_content: Vec<ResolvedFileContent> = resolved
+        .into_iter()
+        .map(|e| ResolvedFileContent { path: e.path, content: e.content })
+        .collect();
+
+    let result = RepositorySynchronizer::new_with_detected_branch(
+        &cfg.repo_path,
+        build_sync_config(cfg),
+    )
+    .and_then(|syncer| syncer.complete_conflict_merge(resolved_content));
+
+    status_tx.send_if_modified(|s| {
+        if let Some(rs) = s.repos.get_mut(idx) {
+            rs.is_syncing = false;
+            match result {
+                Ok(()) => {
+                    rs.error = None;
+                    rs.sync_state_label = "Merged".to_string();
                     rs.sync_state_id = "ok".to_string();
                 }
                 Err(ref e) => {
