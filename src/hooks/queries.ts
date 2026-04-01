@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands, events } from "../bindings";
 import type {
 	DesktopConfig,
@@ -108,5 +109,18 @@ export function useSyncNow() {
 			const result = await commands.syncNow(index);
 			if (result.status === "error") throw new Error(result.error);
 		},
+	});
+}
+
+export function useRevealInFinder() {
+	return useMutation({
+		mutationFn: (path: string) => revealItemInDir(path),
+	});
+}
+
+export function useOpenVSCode() {
+	return useMutation({
+		mutationFn: async (path: string) =>
+			await openPath(path, "Visual Studio Code"),
 	});
 }
