@@ -11,9 +11,19 @@ use crate::status::{
     repo_state_label, sync_state_id, sync_state_label, AppStatus, RepoStatus, SyncErrorPayload,
 };
 
+pub enum ConflictResolutionStrategy {
+    KeepMine,
+    AcceptRemote,
+    AbandonConflictBranch,
+}
+
 pub enum BgCmd {
     SyncNow(usize),
     Reconfigure(DesktopConfig),
+    ResolveConflict {
+        index: usize,
+        strategy: ConflictResolutionStrategy,
+    },
 }
 
 pub fn build_sync_config_pub(cfg: &RepoConfig) -> SyncConfig {
@@ -116,6 +126,22 @@ async fn run_bg_async(
                                 }
                             }
                         }
+                        Some(BgCmd::ResolveConflict { index: idx, strategy }) => {
+                            if let Some(handle) = task_handles.get(idx) {
+                                handle.abort();
+                            }
+                            if let Some(repo_cfg) = cfg.repositories.get(idx).cloned() {
+                                tokio::task::yield_now().await;
+                                let status_tx_clone = Arc::clone(&status_tx);
+                                let handle = join_set.spawn_local(async move {
+                                    run_resolve(idx, &repo_cfg, strategy, status_tx_clone).await;
+                                    idx
+                                });
+                                if idx < task_handles.len() {
+                                    task_handles[idx] = handle;
+                                }
+                            }
+                        }
                         None => return,
                     }
                 }
@@ -137,6 +163,55 @@ fn spawn_repo_task(
         run_repo(idx, &repo_cfg, status_tx).await;
         idx
     })
+}
+
+async fn run_resolve(
+    idx: usize,
+    cfg: &RepoConfig,
+    strategy: ConflictResolutionStrategy,
+    status_tx: Arc<watch::Sender<AppStatus>>,
+) {
+    use git_sync_lib::RepositorySynchronizer;
+
+    status_tx.send_if_modified(|s| {
+        if let Some(rs) = s.repos.get_mut(idx) {
+            rs.sync_state_label = "Resolving…".to_string();
+            rs.sync_state_id = "syncing".to_string();
+            rs.is_syncing = true;
+            rs.error = None;
+            true
+        } else {
+            false
+        }
+    });
+
+    let result = RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
+        .and_then(|syncer| match strategy {
+            ConflictResolutionStrategy::KeepMine => syncer.resolve_keep_mine(),
+            ConflictResolutionStrategy::AcceptRemote => syncer.resolve_accept_remote(),
+            ConflictResolutionStrategy::AbandonConflictBranch => syncer.abandon_conflict_branch(),
+        });
+
+    status_tx.send_if_modified(|s| {
+        if let Some(rs) = s.repos.get_mut(idx) {
+            rs.is_syncing = false;
+            match result {
+                Ok(()) => {
+                    rs.error = None;
+                    rs.sync_state_label = "Resolved".to_string();
+                    rs.sync_state_id = "ok".to_string();
+                }
+                Err(ref e) => {
+                    rs.error = Some(SyncErrorPayload::from(
+                        &git_sync_lib::SyncErrorSummary::from(e),
+                    ));
+                }
+            }
+            true
+        } else {
+            false
+        }
+    });
 }
 
 async fn run_repo(idx: usize, cfg: &RepoConfig, status_tx: Arc<watch::Sender<AppStatus>>) {
