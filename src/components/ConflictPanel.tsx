@@ -1,6 +1,7 @@
 import { FolderOpen, Code, Warning, GitBranch } from "@phosphor-icons/react";
 import {
 	useConflictInfo,
+	useResolveConflict,
 	useRevealInFinder,
 	useOpenVSCode,
 } from "@/hooks/queries";
@@ -22,6 +23,7 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 		idx,
 		isConflict || isConflictBranch,
 	);
+	const resolveConflict = useResolveConflict();
 	const revealInFinder = useRevealInFinder();
 	const openVSCode = useOpenVSCode();
 
@@ -64,6 +66,20 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 					</ul>
 				)}
 				<div className="flex flex-wrap gap-1.5 pt-0.5">
+					<ActionButton
+						onClick={() =>
+							resolveConflict.mutate({
+								index: idx,
+								strategy: "abandon_conflict_branch",
+							})
+						}
+						pending={resolveConflict.isPending}
+						variant="amber"
+					>
+						Discard my changes, return to {targetBranch}
+					</ActionButton>
+				</div>
+				<div className="flex flex-wrap gap-1.5">
 					<ExternalButton
 						onClick={() => revealInFinder.mutate(config.repo_path)}
 						icon={<FolderOpen weight="bold" />}
@@ -81,7 +97,7 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 		);
 	}
 
-	// Direct conflict: rebase was attempted and aborted, conflict markers in index
+	// Direct conflict: rebase was attempted and aborted
 	return (
 		<div className="mt-1 space-y-2 rounded bg-red-50 p-2 text-xs text-red-800 dark:bg-red-950/20 dark:text-red-300">
 			<div className="flex items-center gap-1.5 font-medium">
@@ -103,6 +119,26 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 				</ul>
 			)}
 			<div className="flex flex-wrap gap-1.5 pt-0.5">
+				<ActionButton
+					onClick={() =>
+						resolveConflict.mutate({ index: idx, strategy: "keep_mine" })
+					}
+					pending={resolveConflict.isPending}
+					variant="red"
+				>
+					Keep My Version
+				</ActionButton>
+				<ActionButton
+					onClick={() =>
+						resolveConflict.mutate({ index: idx, strategy: "accept_remote" })
+					}
+					pending={resolveConflict.isPending}
+					variant="red"
+				>
+					Accept Remote Version
+				</ActionButton>
+			</div>
+			<div className="flex flex-wrap gap-1.5">
 				<ExternalButton
 					onClick={() => revealInFinder.mutate(config.repo_path)}
 					icon={<FolderOpen weight="bold" />}
@@ -117,6 +153,32 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 				</ExternalButton>
 			</div>
 		</div>
+	);
+}
+
+function ActionButton({
+	onClick,
+	pending,
+	variant,
+	children,
+}: {
+	onClick: () => void;
+	pending: boolean;
+	variant: "red" | "amber";
+	children: React.ReactNode;
+}) {
+	const cls =
+		variant === "amber"
+			? "bg-amber-200 text-amber-900 hover:bg-amber-300 dark:bg-amber-800/40 dark:text-amber-200 dark:hover:bg-amber-800/60"
+			: "bg-red-200 text-red-900 hover:bg-red-300 dark:bg-red-800/40 dark:text-red-200 dark:hover:bg-red-800/60";
+	return (
+		<button
+			className={`rounded px-2 py-0.5 font-medium disabled:opacity-50 ${cls}`}
+			onClick={onClick}
+			disabled={pending}
+		>
+			{children}
+		</button>
 	);
 }
 
