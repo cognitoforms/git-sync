@@ -16,6 +16,8 @@ export const commands = {
 	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
 	getConflictInfo: (index: number) => typedError<ConflictInfoPayload, string>(__TAURI_INVOKE("get_conflict_info", { index })),
 	resolveConflict: (index: number, strategy: ConflictResolutionStrategyPayload) => typedError<null, string>(__TAURI_INVOKE("resolve_conflict", { index, strategy })),
+	getConflictFilesContent: (index: number) => typedError<ConflictFileContentPayload[], string>(__TAURI_INVOKE("get_conflict_files_content", { index })),
+	completeConflictMerge: (index: number, resolved: ResolvedFilePayload[]) => typedError<null, string>(__TAURI_INVOKE("complete_conflict_merge", { index, resolved })),
 };
 
 /** Events */
@@ -27,6 +29,13 @@ export const events = {
 /* Types */
 export type AppStatus = {
 	repos: RepoStatus[],
+};
+
+export type ConflictFileContentPayload = {
+	path: string,
+	ours: string,
+	theirs: string,
+	base: string,
 };
 
 export type ConflictInfoPayload = {
@@ -85,6 +94,11 @@ export type RepoStatus = {
 	is_syncing: boolean,
 	error: SyncErrorPayload | null,
 	last_sync_time: string | null,
+};
+
+export type ResolvedFilePayload = {
+	path: string,
+	content: string,
 };
 
 export type StatusUpdateEvent = AppStatus;
