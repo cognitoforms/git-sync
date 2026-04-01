@@ -40,6 +40,7 @@ mod tests {
                 commands::validate_repo_path,
                 commands::pick_folder,
                 commands::get_log_history,
+                commands::get_conflict_info,
             ])
             .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 
@@ -115,6 +116,7 @@ pub fn run() {
             commands::validate_repo_path,
             commands::pick_folder,
             commands::get_log_history,
+            commands::get_conflict_info,
         ])
         .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 

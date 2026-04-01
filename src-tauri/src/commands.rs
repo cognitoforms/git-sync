@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::State;
 
 use crate::config::DesktopConfig;
@@ -61,6 +62,49 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String
         path_opt
             .and_then(|p| p.into_path().ok())
             .map(|pb| pb.to_string_lossy().to_string())
+    })
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
+pub struct ConflictInfoPayload {
+    pub conflicted_files: Vec<String>,
+    pub on_conflict_branch: bool,
+    pub conflict_branch_name: Option<String>,
+    pub target_branch: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_conflict_info(
+    state: State<'_, Mutex<AppState>>,
+    index: usize,
+) -> Result<ConflictInfoPayload, String> {
+    use git_sync_lib::RepositorySynchronizer;
+    let config = {
+        let s = state.lock().unwrap();
+        s.config
+            .repositories
+            .get(index)
+            .cloned()
+            .ok_or_else(|| format!("No repository at index {}", index))?
+    };
+    let sync_config = crate::worker::build_sync_config_pub(&config);
+    let syncer =
+        RepositorySynchronizer::new_with_detected_branch(&config.repo_path, sync_config)
+            .map_err(|e| e.to_string())?;
+
+    let conflicted_files = syncer.get_conflict_info().map_err(|e| e.to_string())?;
+    let on_conflict_branch = syncer.is_on_fallback_branch().unwrap_or(false);
+    let conflict_branch_name = syncer.get_conflict_branch();
+    let target_branch = syncer
+        .get_target_branch()
+        .unwrap_or_else(|_| "main".to_string());
+
+    Ok(ConflictInfoPayload {
+        conflicted_files,
+        on_conflict_branch,
+        conflict_branch_name,
+        target_branch,
     })
 }
 
