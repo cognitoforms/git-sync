@@ -12,6 +12,14 @@
 		"dialog:allow-open",
 		"os:default",
 		"process:default",
-		"updater:default"
+		"updater:default",
+		{
+			"identifier": "opener:allow-reveal-item-in-dir",
+			"allow": [{ "path": "**" }]
+		},
+		{
+			"identifier": "opener:allow-open-path",
+			"allow": [{ "path": "**", "app": "Visual Studio Code" }]
+		}
 	]
 }
