@@ -2,7 +2,10 @@ import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands, events } from "../bindings";
-import type { ConflictResolutionStrategyPayload } from "../bindings";
+import type {
+	ConflictResolutionStrategyPayload,
+	ResolvedFilePayload,
+} from "../bindings";
 import type {
 	DesktopConfig,
 	GlobalSettings,
@@ -142,6 +145,40 @@ export function useResolveConflict() {
 		},
 		onSuccess: (_, { index }) => {
 			queryClient.invalidateQueries({ queryKey: ["conflict-info", index] });
+		},
+	});
+}
+
+export function useConflictFilesContent(repoIdx: number, enabled: boolean) {
+	return useQuery({
+		queryKey: ["conflict-files-content", repoIdx],
+		queryFn: async () => {
+			const result = await commands.getConflictFilesContent(repoIdx);
+			if (result.status === "error") throw new Error(result.error);
+			return result.data;
+		},
+		enabled,
+	});
+}
+
+export function useCompleteMerge() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async ({
+			index,
+			resolved,
+		}: {
+			index: number;
+			resolved: ResolvedFilePayload[];
+		}) => {
+			const result = await commands.completeConflictMerge(index, resolved);
+			if (result.status === "error") throw new Error(result.error);
+		},
+		onSuccess: (_, { index }) => {
+			queryClient.invalidateQueries({ queryKey: ["conflict-info", index] });
+			queryClient.invalidateQueries({
+				queryKey: ["conflict-files-content", index],
+			});
 		},
 	});
 }

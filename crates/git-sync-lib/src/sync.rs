@@ -110,6 +110,22 @@ pub enum UnhandledFileState {
     Conflicted { path: String },
 }
 
+/// 3-way file content for the merge editor.
+#[derive(Debug)]
+pub struct ConflictFileContent {
+    pub path: String,
+    pub ours: String,
+    pub theirs: String,
+    pub base: String,
+}
+
+/// A single file's resolved content, sent back from the frontend.
+#[derive(Debug)]
+pub struct ResolvedFileContent {
+    pub path: String,
+    pub content: String,
+}
+
 /// State for tracking fallback branch return attempts (in-memory only)
 #[derive(Debug, Clone, Default)]
 pub struct FallbackState {
@@ -945,6 +961,201 @@ impl RepositorySynchronizer {
         );
 
         Ok(())
+    }
+
+    /// Return the 3-way file content for every conflicting file so the
+    /// frontend can display a merge editor.
+    ///
+    /// For a direct conflict (conflict markers already in the index): reads
+    /// the staged conflict entries directly.
+    ///
+    /// For a conflict branch merge (user's work on a fallback branch): performs
+    /// an in-memory merge against the remote target to extract the 3-way blobs.
+    pub fn get_conflict_files_content(&self) -> Result<Vec<ConflictFileContent>> {
+        if self.is_on_fallback_branch()? {
+            // In-memory merge to extract 3-way blobs without touching the working tree
+            let target_branch = self.get_target_branch()?;
+            let target_ref =
+                format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+            let target_reference = self.repo.find_reference(&target_ref).map_err(|_| {
+                SyncError::Other(format!("Remote branch {} not found", target_branch))
+            })?;
+            let our_commit = self.repo.head()?.peel_to_commit()?;
+            let target_commit = target_reference.peel_to_commit()?;
+            let virtual_index = self
+                .repo
+                .merge_commits(&our_commit, &target_commit, None)
+                .map_err(|e| {
+                    SyncError::Other(format!("In-memory merge failed: {}", e))
+                })?;
+            return self.extract_conflict_contents_from_index(&virtual_index);
+        }
+
+        // Direct conflict: read from the on-disk index
+        let index = self.repo.index()?;
+        self.extract_conflict_contents_from_index(&index)
+    }
+
+    fn extract_conflict_contents_from_index(
+        &self,
+        index: &git2::Index,
+    ) -> Result<Vec<ConflictFileContent>> {
+        let mut result = Vec::new();
+        let conflicts = index.conflicts()?;
+        for conflict in conflicts.flatten() {
+            let path = conflict
+                .our
+                .as_ref()
+                .or(conflict.their.as_ref())
+                .or(conflict.ancestor.as_ref())
+                .map(|e| String::from_utf8_lossy(&e.path).to_string())
+                .unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+
+            let ours = conflict
+                .our
+                .as_ref()
+                .and_then(|e| self.repo.find_blob(e.id).ok())
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned())
+                .unwrap_or_default();
+            let theirs = conflict
+                .their
+                .as_ref()
+                .and_then(|e| self.repo.find_blob(e.id).ok())
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned())
+                .unwrap_or_default();
+            let base = conflict
+                .ancestor
+                .as_ref()
+                .and_then(|e| self.repo.find_blob(e.id).ok())
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned())
+                .unwrap_or_default();
+
+            result.push(ConflictFileContent {
+                path,
+                ours,
+                theirs,
+                base,
+            });
+        }
+        Ok(result)
+    }
+
+    /// Apply user-resolved file contents to complete the merge.
+    ///
+    /// For a direct conflict (conflict markers in the index): writes resolved
+    /// files, stages everything, and commits. `auto_commit` creates a merge
+    /// commit when MERGE_HEAD is present, or a regular commit otherwise.
+    ///
+    /// For a conflict branch merge (on fallback branch): initiates the merge
+    /// first so MERGE_HEAD is set, writes resolved files, commits the merge
+    /// commit on the fallback branch, then fast-forwards the target branch to
+    /// that commit and switches back to it.
+    pub fn complete_conflict_merge(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        if self.is_on_fallback_branch()? {
+            self.complete_conflict_branch_merge(resolved)
+        } else {
+            self.complete_direct_conflict_merge(resolved)
+        }
+    }
+
+    fn complete_direct_conflict_merge(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        // If not yet in Merge state, initiate the merge first.
+        if self.repo.state() != git2::RepositoryState::Merge {
+            let branch_name = self.get_current_branch()?;
+            let remote_ref_name =
+                format!("refs/remotes/{}/{}", self.config.remote_name, branch_name);
+            let remote_ref = self.repo.find_reference(&remote_ref_name).map_err(|_| {
+                SyncError::Other(format!("Remote branch {} not found", branch_name))
+            })?;
+            let remote_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
+            let mut co = git2::build::CheckoutBuilder::new();
+            co.force();
+            self.repo
+                .merge(&[&remote_annotated], None, Some(&mut co))
+                .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
+        }
+
+        self.write_and_commit_resolved(resolved)?;
+        self.repo.cleanup_state()?;
+        Ok(())
+    }
+
+    fn complete_conflict_branch_merge(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        let current_branch = self.get_current_branch()?;
+        let target_branch = self.get_target_branch()?;
+        let remote_target_ref =
+            format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+        let remote_ref = self.repo.find_reference(&remote_target_ref).map_err(|_| {
+            SyncError::Other(format!("Remote target branch {} not found", target_branch))
+        })?;
+        let target_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
+
+        // Initiate the merge to write MERGE_HEAD and the working tree.
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo
+            .merge(&[&target_annotated], None, Some(&mut co))
+            .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
+
+        // Overwrite conflicted files with the user's resolved content.
+        self.write_and_commit_resolved(resolved)?;
+
+        // Get the merge commit OID (now HEAD of the fallback branch).
+        let merge_commit_oid = self
+            .repo
+            .head()?
+            .target()
+            .ok_or_else(|| SyncError::Other("No HEAD after merge commit".to_string()))?;
+
+        // Fast-forward the target branch to the merge commit.
+        let target_ref_name = format!("refs/heads/{}", target_branch);
+        match self.repo.find_reference(&target_ref_name) {
+            Ok(_) => {
+                self.repo.reference(
+                    &target_ref_name,
+                    merge_commit_oid,
+                    true,
+                    "git-sync: ff to resolved merge",
+                )?;
+            }
+            Err(_) => {
+                let commit = self.repo.find_commit(merge_commit_oid)?;
+                self.repo.branch(&target_branch, &commit, false)?;
+            }
+        }
+
+        // Checkout target branch.
+        let object = self.repo.find_object(merge_commit_oid, None)?;
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo.checkout_tree(&object, Some(&mut co))?;
+        self.repo.set_head(&target_ref_name)?;
+
+        // Delete fallback branch (best-effort).
+        if let Ok(mut branch) = self.repo.find_branch(&current_branch, BranchType::Local) {
+            let _ = branch.delete();
+        }
+
+        self.repo.cleanup_state()?;
+        info!("Conflict branch merge completed, returned to {}", target_branch);
+        Ok(())
+    }
+
+    fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        for file in &resolved {
+            let full_path = self._repo_path.join(&file.path);
+            if let Some(parent) = full_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&full_path, &file.content)?;
+        }
+        let mut index = self.repo.index()?;
+        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+        index.write()?;
+        self.auto_commit()
     }
 
     /// Resolve a direct conflict by merging the remote branch and keeping our

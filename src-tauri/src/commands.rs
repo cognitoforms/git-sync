@@ -146,6 +146,73 @@ pub fn resolve_conflict(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize, Clone, Debug, specta::Type)]
+pub struct ConflictFileContentPayload {
+    pub path: String,
+    pub ours: String,
+    pub theirs: String,
+    pub base: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+pub struct ResolvedFilePayload {
+    pub path: String,
+    pub content: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_conflict_files_content(
+    state: State<'_, Mutex<AppState>>,
+    index: usize,
+) -> Result<Vec<ConflictFileContentPayload>, String> {
+    use git_sync_lib::RepositorySynchronizer;
+    let config = {
+        let s = state.lock().unwrap();
+        s.config
+            .repositories
+            .get(index)
+            .cloned()
+            .ok_or_else(|| format!("No repository at index {}", index))?
+    };
+    let sync_config = crate::worker::build_sync_config_pub(&config);
+    let syncer =
+        RepositorySynchronizer::new_with_detected_branch(&config.repo_path, sync_config)
+            .map_err(|e| e.to_string())?;
+    let files = syncer
+        .get_conflict_files_content()
+        .map_err(|e| e.to_string())?;
+    Ok(files
+        .into_iter()
+        .map(|f| ConflictFileContentPayload {
+            path: f.path,
+            ours: f.ours,
+            theirs: f.theirs,
+            base: f.base,
+        })
+        .collect())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn complete_conflict_merge(
+    state: State<'_, Mutex<AppState>>,
+    index: usize,
+    resolved: Vec<ResolvedFilePayload>,
+) -> Result<(), String> {
+    use crate::worker::ResolvedFileEntry;
+    let entries: Vec<ResolvedFileEntry> = resolved
+        .into_iter()
+        .map(|r| ResolvedFileEntry { path: r.path, content: r.content })
+        .collect();
+    state
+        .lock()
+        .unwrap()
+        .worker_tx
+        .send(BgCmd::CompleteMerge { index, resolved: entries })
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn get_log_history(repo: Option<String>, state: State<'_, LogState>) -> Vec<FrontendLogEntry> {
