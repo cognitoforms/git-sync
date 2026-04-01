@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 #[serde(default)]
 pub struct RepoConfig {
     pub name: String,
@@ -37,7 +37,7 @@ impl Default for RepoConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 #[serde(default)]
 pub struct GlobalSettings {
     pub remote: String,
@@ -79,7 +79,7 @@ impl RepoConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, specta::Type)]
 pub struct DesktopConfig {
     #[serde(default)]
     pub global: GlobalSettings,

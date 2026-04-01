@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
-import { getConfig, getStatus, onStatusUpdate, setConfig } from "./api";
-import type { AppStatus, DesktopConfig, View } from "./types";
+import { useState } from "react";
+import type { View } from "./types";
+import type { AppStatus } from "./bindings";
+import {
+	useConfig,
+	useStatus,
+	useSetConfig,
+	EMPTY_CONFIG,
+	EMPTY_STATUS,
+	type ResolvedConfig,
+} from "./hooks/queries";
 import { ERROR_LABELS } from "./components/RepoStatusBadge";
 
 const WARNING_CATEGORIES = new Set(["conflict", "conflict_branch"]);
@@ -8,21 +16,6 @@ import TitleBar from "./components/TitleBar";
 import RepoListView from "./components/RepoListView";
 import RepoSettingsView from "./components/RepoSettingsView";
 import GlobalSettingsView from "./components/GlobalSettingsView";
-
-const EMPTY_CONFIG: DesktopConfig = {
-	global: {
-		remote: "origin",
-		interval_secs: 60,
-		commit_message: "",
-		sync_new_files: true,
-		skip_hooks: false,
-		conflict_branch: true,
-		sync_on_start: true,
-		debounce_ms: 500,
-	},
-	repositories: [],
-};
-const EMPTY_STATUS: AppStatus = { repos: [] };
 
 const STATUS_PRIORITY: Record<string, number> = {
 	"error-critical": 6,
@@ -73,22 +66,13 @@ function titleForView(view: View): string {
 }
 
 export default function App() {
-	const [config, setConfigState] = useState<DesktopConfig>(EMPTY_CONFIG);
-	const [status, setStatus] = useState<AppStatus>(EMPTY_STATUS);
+	const { data: config = EMPTY_CONFIG } = useConfig();
+	const { data: status = EMPTY_STATUS } = useStatus();
+	const setConfigMutation = useSetConfig();
 	const [view, setView] = useState<View>({ kind: "list" });
 
-	useEffect(() => {
-		getConfig().then(setConfigState).catch(console.error);
-		getStatus().then(setStatus).catch(console.error);
-		const unlistenPromise = onStatusUpdate(setStatus);
-		return () => {
-			unlistenPromise.then((u) => u());
-		};
-	}, []);
-
-	const handleSave = async (newConfig: DesktopConfig) => {
-		await setConfig(newConfig);
-		setConfigState(newConfig);
+	const handleSave = async (newConfig: ResolvedConfig) => {
+		await setConfigMutation.mutateAsync(newConfig);
 		setView({ kind: "list" });
 	};
 

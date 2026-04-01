@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState } from "react";
 import { ArrowsClockwise, GearSix, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { formatLastSync, getLogHistory, onLogEntry } from "@/api";
-import type { LogEntry, RepoConfig, RepoStatus } from "@/types";
+import { formatLastSync, commands, events } from "@/api";
+import type { FrontendLogEntry, RepoStatus } from "@/bindings";
+import type { ResolvedRepo } from "@/hooks/queries";
 import RepoStatusBadge, { ERROR_LABELS } from "./RepoStatusBadge";
 
 const ERROR_HINTS: Record<string, string> = {
@@ -19,7 +20,7 @@ const LOG_CAP = 200;
 
 interface Props {
 	idx: number;
-	config: RepoConfig;
+	config: ResolvedRepo;
 	status: RepoStatus | undefined;
 	onClose: () => void;
 	onSync: () => void;
@@ -34,25 +35,27 @@ export default function RepoDetailSidebar({
 	onOpenSettings,
 }: Props) {
 	const logEndRef = useRef<HTMLDivElement>(null);
-	const [logs, setLogs] = useState<LogEntry[]>([]);
+	const [logs, setLogs] = useState<FrontendLogEntry[]>([]);
 
+	// Load history once per repo path, then append live entries.
 	useEffect(() => {
-		const repoPath = config.repo_path;
-
-		getLogHistory()
-			.then((entries) => {
-				setLogs(entries.filter((e) => e.repo === repoPath).slice(-LOG_CAP));
-			})
+		setLogs([]);
+		commands
+			.getLogHistory(config.repo_path)
+			.then((entries) => setLogs(entries.slice(-LOG_CAP)))
 			.catch(console.error);
+	}, [config.repo_path]);
 
-		const unlisten = onLogEntry((entry) => {
-			if (entry.repo === repoPath) {
+	// Subscribe to live log entries.
+	useEffect(() => {
+		const p = events.logEntryEvent.listen((e) => {
+			const entry = e.payload;
+			if (entry.repo === config.repo_path) {
 				setLogs((prev) => [...prev, entry].slice(-LOG_CAP));
 			}
 		});
-
 		return () => {
-			unlisten.then((u) => u());
+			p.then((f) => f());
 		};
 	}, [config.repo_path]);
 

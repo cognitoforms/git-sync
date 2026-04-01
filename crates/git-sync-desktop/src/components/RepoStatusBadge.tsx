@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { RepoStatus } from "@/types";
+import type { RepoStatus } from "@/bindings";
 import StatusDot from "./StatusDot";
 
 export const ERROR_LABELS: Record<string, string> = {

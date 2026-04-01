@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
-import type { DesktopConfig } from "@/types";
+import { type ResolvedConfig } from "@/hooks/queries";
 
 interface Props {
-	config: DesktopConfig;
-	onSave: (newConfig: DesktopConfig) => void;
+	config: ResolvedConfig;
+	onSave: (newConfig: ResolvedConfig) => void;
 	onBack: () => void;
 }
 
@@ -85,7 +85,9 @@ export default function GlobalSettingsView({ config, onSave, onBack }: Props) {
 						</Field>
 
 						<Field>
-							<FieldLabel>Default commit message (leave blank for built-in default)</FieldLabel>
+							<FieldLabel>
+								Default commit message (leave blank for built-in default)
+							</FieldLabel>
 							<Controller
 								name="commit_message"
 								control={control}
@@ -100,7 +102,12 @@ export default function GlobalSettingsView({ config, onSave, onBack }: Props) {
 
 						<div className="flex flex-col gap-2.5 pt-1">
 							{(
-								["sync_new_files", "skip_hooks", "conflict_branch", "sync_on_start"] as const
+								[
+									"sync_new_files",
+									"skip_hooks",
+									"conflict_branch",
+									"sync_on_start",
+								] as const
 							).map((name) => (
 								<Controller
 									key={name}
@@ -131,7 +138,7 @@ export default function GlobalSettingsView({ config, onSave, onBack }: Props) {
 			</div>
 
 			{/* Footer */}
-			<div className="border-border flex items-center justify-end border-t px-4 py-2.5 gap-2">
+			<div className="border-border flex items-center justify-end gap-2 border-t px-4 py-2.5">
 				<Button variant="ghost" size="sm" onClick={onBack}>
 					Cancel
 				</Button>

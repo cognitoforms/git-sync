@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowsClockwise, GearSix } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
-import { syncNow, formatLastSync } from "@/api";
-import type { AppStatus, DesktopConfig } from "@/types";
+import { formatLastSync } from "@/api";
+import type { AppStatus } from "@/bindings";
+import { useSyncNow, type ResolvedConfig } from "@/hooks/queries";
 import RepoStatusBadge from "./RepoStatusBadge";
 import RepoDetailSidebar from "./RepoDetailSidebar";
 import { Transition } from "react-transition-group";
 
 interface Props {
-	config: DesktopConfig;
+	config: ResolvedConfig;
 	status: AppStatus;
 	onOpenSettings: (idx: number | null) => void;
 	onOpenGlobalSettings: () => void;
@@ -21,6 +22,7 @@ export default function RepoListView({
 	onOpenSettings,
 	onOpenGlobalSettings,
 }: Props) {
+	const syncNowMutation = useSyncNow();
 	const [, setTick] = useState(0);
 	const [selectedRepo, setSelectedRepo] = useState<number | null>(null);
 	const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -163,7 +165,7 @@ export default function RepoListView({
 													<Button
 														variant="ghost"
 														size="icon-sm"
-														onClick={() => syncNow(idx)}
+														onClick={() => syncNowMutation.mutate(idx)}
 														title="Sync now"
 													>
 														<ArrowsClockwise
@@ -192,7 +194,7 @@ export default function RepoListView({
 				</div>
 
 				{/* Footer */}
-				<div className="border-border flex items-center border-t px-3 py-2.5 gap-2">
+				<div className="border-border flex items-center gap-2 border-t px-3 py-2.5">
 					<Button
 						variant="ghost"
 						size="icon-sm"
@@ -251,7 +253,7 @@ export default function RepoListView({
 								config={displayConfig}
 								status={displayStatus}
 								onClose={() => setSelectedRepo(null)}
-								onSync={() => syncNow(displayIdx)}
+								onSync={() => syncNowMutation.mutate(displayIdx!)}
 								onOpenSettings={() => onOpenSettings(displayIdx)}
 							/>
 						)}

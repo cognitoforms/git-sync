@@ -7,14 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
-import { pickFolder, validateRepoPath } from "@/api";
-import type { DesktopConfig, GlobalSettings } from "@/types";
+import { commands } from "@/api";
+import { type ResolvedConfig, type ResolvedGlobal } from "@/hooks/queries";
 
 interface Props {
-	config: DesktopConfig;
+	config: ResolvedConfig;
 	idx: number | null;
-	globalSettings: GlobalSettings;
-	onSave: (newConfig: DesktopConfig) => void;
+	globalSettings: ResolvedGlobal;
+	onSave: (newConfig: ResolvedConfig) => void;
 	onBack: () => void;
 }
 
@@ -71,7 +71,7 @@ export default function RepoSettingsView({
 
 	const checkGitRepo = async (path: string) => {
 		if (!path) return;
-		const valid = await validateRepoPath(path);
+		const valid = await commands.validateRepoPath(path);
 		if (!valid) {
 			setError("repo_path", { message: "Directory is not a Git repository" });
 		} else {
@@ -133,7 +133,9 @@ export default function RepoSettingsView({
 											variant="outline"
 											size="sm"
 											onClick={async () => {
-												const path = await pickFolder();
+												const result = await commands.pickFolder();
+												const path =
+													result.status === "ok" ? result.data : null;
 												if (path) {
 													field.onChange(path);
 													await checkGitRepo(path);
@@ -211,7 +213,12 @@ export default function RepoSettingsView({
 
 						<div className="flex flex-col gap-2.5 pt-1">
 							{(
-								["sync_new_files", "skip_hooks", "conflict_branch", "sync_on_start"] as const
+								[
+									"sync_new_files",
+									"skip_hooks",
+									"conflict_branch",
+									"sync_on_start",
+								] as const
 							).map((name) => (
 								<Controller
 									key={name}

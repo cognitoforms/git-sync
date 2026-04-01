@@ -9,16 +9,19 @@ use crate::worker::BgCmd;
 use crate::{AppState, LogState, StatusState};
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_config(state: State<'_, Mutex<AppState>>) -> DesktopConfig {
     state.lock().unwrap().config.clone()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_status(state: State<'_, Mutex<StatusState>>) -> AppStatus {
     state.lock().unwrap().0.borrow().clone()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_config(
     state: State<'_, Mutex<AppState>>,
     config: DesktopConfig,
@@ -33,6 +36,7 @@ pub fn set_config(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn sync_now(state: State<'_, Mutex<AppState>>, index: usize) -> Result<(), String> {
     state
         .lock()
@@ -43,11 +47,13 @@ pub fn sync_now(state: State<'_, Mutex<AppState>>, index: usize) -> Result<(), S
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn validate_repo_path(path: String) -> bool {
     std::path::Path::new(&path).join(".git").exists()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -63,6 +69,7 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_log_history(
     repo: Option<String>,
     state: State<'_, LogState>,

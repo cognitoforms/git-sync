@@ -1,7 +1,7 @@
 use git_sync_lib::{RepositoryState, SyncErrorExtra, SyncErrorSummary, SyncState};
 use serde::Serialize;
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(tag = "category", rename_all = "snake_case")]
 pub enum SyncErrorPayload {
     Auth           { message: String },
@@ -34,7 +34,7 @@ impl From<&SyncErrorSummary> for SyncErrorPayload {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 pub struct RepoStatus {
     #[allow(dead_code)]
     pub repo_path: String,
@@ -72,7 +72,7 @@ impl RepoStatus {
     }
 }
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Clone, Default, specta::Type)]
 pub struct AppStatus {
     pub repos: Vec<RepoStatus>,
 }
