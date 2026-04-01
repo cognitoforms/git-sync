@@ -3,18 +3,13 @@ import { ArrowsClockwise, GearSix, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { formatLastSync, commands, events } from "@/api";
 import type { FrontendLogEntry, RepoStatus } from "@/bindings";
-import {
-	useRevealInFinder,
-	useOpenVSCode,
-	type ResolvedRepo,
-} from "@/hooks/queries";
+import type { ResolvedRepo } from "@/hooks/queries";
 import RepoStatusBadge, { ERROR_LABELS } from "./RepoStatusBadge";
+import ConflictPanel from "./ConflictPanel";
 
 const ERROR_HINTS: Record<string, string> = {
 	auth: "Check your SSH keys or repository credentials.",
 	network: "Check your network connection and try again.",
-	conflict:
-		"Open the repository in a Git client to resolve the conflicts, then sync again.",
 	config: "Review the repository settings (remote, branch).",
 	state:
 		"The repository is in an intermediate Git state. It may resolve automatically.",
@@ -32,6 +27,7 @@ interface Props {
 }
 
 export default function RepoDetailSidebar({
+	idx,
 	config,
 	status,
 	onClose,
@@ -40,8 +36,6 @@ export default function RepoDetailSidebar({
 }: Props) {
 	const logEndRef = useRef<HTMLDivElement>(null);
 	const [logs, setLogs] = useState<FrontendLogEntry[]>([]);
-	const revealInFinder = useRevealInFinder();
-	const openVSCode = useOpenVSCode();
 
 	// Load history once per repo path, then append live entries.
 	useEffect(() => {
@@ -71,6 +65,10 @@ export default function RepoDetailSidebar({
 
 	const name =
 		config.name || config.repo_path.split(/[\\/]/).pop() || config.repo_path;
+
+	const isConflictCategory =
+		status?.error?.category === "conflict" ||
+		status?.error?.category === "conflict_branch";
 
 	return (
 		<div className="bg-background border-border flex h-full w-full flex-col border-l [box-shadow:-4px_0_16px_rgb(0_0_0_/_0.08)]">
@@ -114,63 +112,23 @@ export default function RepoDetailSidebar({
 						<div className="text-muted-foreground text-xs">
 							Last sync: {formatLastSync(status.last_sync_time)}
 						</div>
-						{status.error &&
-							(status.error.category === "conflict_branch" ? (
-								<div className="mt-1 space-y-1 rounded bg-amber-50 p-1.5 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
-									<div className="font-medium">Conflict branch active</div>
-									<div>
-										Changes saved to{" "}
-										<span className="font-mono">{status.error.branch}</span>
-									</div>
-									<div className="italic">
-										Merge this branch into your target branch, then sync again.
-									</div>
-									<div className="flex gap-1.5 pt-0.5">
-										<button
-											className="rounded bg-amber-100 px-2 py-0.5 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
-											onClick={() => revealInFinder.mutate(config.repo_path)}
-										>
-											Reveal in Finder
-										</button>
-										<button
-											className="rounded bg-amber-100 px-2 py-0.5 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
-											onClick={() => openVSCode.mutate(config.repo_path)}
-										>
-											Open in VS Code
-										</button>
-									</div>
+						{status.error && isConflictCategory ? (
+							<ConflictPanel idx={idx} config={config} status={status} />
+						) : status.error ? (
+							<div className="mt-1 space-y-1 rounded bg-red-50 p-1.5 text-xs text-red-700 dark:bg-red-950/20 dark:text-red-400">
+								<div className="font-medium">
+									{ERROR_LABELS[status.error.category] ?? "Sync error"}
 								</div>
-							) : (
-								<div className="mt-1 space-y-1 rounded bg-red-50 p-1.5 text-xs text-red-700 dark:bg-red-950/20 dark:text-red-400">
-									<div className="font-medium">
-										{ERROR_LABELS[status.error.category] ?? "Sync error"}
-									</div>
-									<div className="text-red-600 dark:text-red-500">
-										{status.error.message}
-									</div>
-									{ERROR_HINTS[status.error.category] && (
-										<div className="text-red-500/80 italic dark:text-red-400/70">
-											{ERROR_HINTS[status.error.category]}
-										</div>
-									)}
-									{status.error.category === "conflict" && (
-										<div className="flex gap-1.5 pt-0.5">
-											<button
-												className="rounded bg-red-100 px-2 py-0.5 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
-												onClick={() => revealInFinder.mutate(config.repo_path)}
-											>
-												Reveal in Finder
-											</button>
-											<button
-												className="rounded bg-red-100 px-2 py-0.5 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
-												onClick={() => openVSCode.mutate(config.repo_path)}
-											>
-												Open in VS Code
-											</button>
-										</div>
-									)}
+								<div className="text-red-600 dark:text-red-500">
+									{status.error.message}
 								</div>
-							))}
+								{ERROR_HINTS[status.error.category] && (
+									<div className="text-red-500/80 italic dark:text-red-400/70">
+										{ERROR_HINTS[status.error.category]}
+									</div>
+								)}
+							</div>
+						) : null}
 					</>
 				) : (
 					<div className="text-muted-foreground text-sm">Loading…</div>

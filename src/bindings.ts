@@ -14,6 +14,7 @@ export const commands = {
 	validateRepoPath: (path: string) => __TAURI_INVOKE<boolean>("validate_repo_path", { path }),
 	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
+	getConflictInfo: (index: number) => typedError<ConflictInfoPayload, string>(__TAURI_INVOKE("get_conflict_info", { index })),
 };
 
 /** Events */
@@ -25,6 +26,13 @@ export const events = {
 /* Types */
 export type AppStatus = {
 	repos: RepoStatus[],
+};
+
+export type ConflictInfoPayload = {
+	conflicted_files: string[],
+	on_conflict_branch: boolean,
+	conflict_branch_name: string | null,
+	target_branch: string,
 };
 
 export type DesktopConfig = {

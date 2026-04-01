@@ -947,6 +947,92 @@ impl RepositorySynchronizer {
         Ok(())
     }
 
+    /// Return a list of conflicted file paths.
+    ///
+    /// For a direct conflict (rebase was attempted and aborted, conflict markers
+    /// remain in the index): reads staged conflict entries and working-tree
+    /// conflict status flags.
+    ///
+    /// For a conflict branch merge (user's work was committed to a fallback
+    /// branch): performs an in-memory merge against the remote target to
+    /// identify which files would conflict.
+    pub fn get_conflict_info(&self) -> Result<Vec<String>> {
+        let mut paths: Vec<String> = Vec::new();
+
+        // --- Direct conflict: read conflict markers from working tree / index ---
+        // Check working-tree status flags.
+        let mut status_opts = StatusOptions::new();
+        status_opts.include_untracked(false);
+        let statuses = self.repo.statuses(Some(&mut status_opts))?;
+        for entry in statuses.iter() {
+            if entry.status().is_conflicted() {
+                paths.push(entry.path().unwrap_or("<unknown>").to_string());
+            }
+        }
+
+        // Also scan the index for staged conflict entries (stage 1/2/3),
+        // which may not always surface as STATUS_CONFLICTED above.
+        let index = self.repo.index()?;
+        if index.has_conflicts() {
+            let conflicts = index.conflicts()?;
+            for conflict in conflicts.flatten() {
+                let path = conflict
+                    .our
+                    .or(conflict.their)
+                    .or(conflict.ancestor)
+                    .and_then(|e| String::from_utf8(e.path).ok())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+
+        if !paths.is_empty() {
+            return Ok(paths);
+        }
+
+        // --- Conflict branch merge: in-memory merge to find would-be conflicts ---
+        // We're on a fallback branch; the working tree has no markers yet.
+        // Merge our HEAD against the remote target in-memory to show the user
+        // which files will need attention.
+        if self.is_on_fallback_branch()? {
+            if let Ok(target_branch) = self.get_target_branch() {
+                let target_ref =
+                    format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+                if let Ok(target_reference) = self.repo.find_reference(&target_ref) {
+                    if let (Ok(our_commit), Ok(target_commit)) = (
+                        self.repo.head()?.peel_to_commit(),
+                        target_reference.peel_to_commit(),
+                    ) {
+                        let merge_opts = MergeOptions::new();
+                        if let Ok(virtual_index) = self
+                            .repo
+                            .merge_commits(&our_commit, &target_commit, Some(&merge_opts))
+                        {
+                            if virtual_index.has_conflicts() {
+                                let conflicts = virtual_index.conflicts()?;
+                                for conflict in conflicts.flatten() {
+                                    let path = conflict
+                                        .our
+                                        .or(conflict.their)
+                                        .or(conflict.ancestor)
+                                        .and_then(|e| String::from_utf8(e.path).ok())
+                                        .unwrap_or_else(|| "<unknown>".to_string());
+                                    if !paths.contains(&path) {
+                                        paths.push(path);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(paths)
+    }
+
     /// Main sync operation
     pub fn sync(&mut self, check_only: bool) -> Result<()> {
         info!("Starting sync operation (check_only: {})", check_only);

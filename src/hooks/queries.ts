@@ -112,6 +112,20 @@ export function useSyncNow() {
 	});
 }
 
+export function useConflictInfo(repoIdx: number, enabled: boolean) {
+	return useQuery({
+		queryKey: ["conflict-info", repoIdx],
+		queryFn: async () => {
+			const result = await commands.getConflictInfo(repoIdx);
+			if (result.status === "error") throw new Error(result.error);
+			return result.data;
+		},
+		enabled,
+		// Re-fetch every 5 s while a conflict panel is open.
+		refetchInterval: enabled ? 5000 : false,
+	});
+}
+
 export function useRevealInFinder() {
 	return useMutation({
 		mutationFn: (path: string) => revealItemInDir(path),
