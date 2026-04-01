@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands, events } from "../bindings";
+import type { ConflictResolutionStrategyPayload } from "../bindings";
 import type {
 	DesktopConfig,
 	GlobalSettings,
@@ -123,6 +124,25 @@ export function useConflictInfo(repoIdx: number, enabled: boolean) {
 		enabled,
 		// Re-fetch every 5 s while a conflict panel is open.
 		refetchInterval: enabled ? 5000 : false,
+	});
+}
+
+export function useResolveConflict() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async ({
+			index,
+			strategy,
+		}: {
+			index: number;
+			strategy: ConflictResolutionStrategyPayload;
+		}) => {
+			const result = await commands.resolveConflict(index, strategy);
+			if (result.status === "error") throw new Error(result.error);
+		},
+		onSuccess: (_, { index }) => {
+			queryClient.invalidateQueries({ queryKey: ["conflict-info", index] });
+		},
 	});
 }
 

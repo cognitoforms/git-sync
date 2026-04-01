@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::config::DesktopConfig;
@@ -106,6 +106,44 @@ pub fn get_conflict_info(
         conflict_branch_name,
         target_branch,
     })
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictResolutionStrategyPayload {
+    KeepMine,
+    AcceptRemote,
+    AbandonConflictBranch,
+}
+
+impl From<ConflictResolutionStrategyPayload> for crate::worker::ConflictResolutionStrategy {
+    fn from(p: ConflictResolutionStrategyPayload) -> Self {
+        match p {
+            ConflictResolutionStrategyPayload::KeepMine => Self::KeepMine,
+            ConflictResolutionStrategyPayload::AcceptRemote => Self::AcceptRemote,
+            ConflictResolutionStrategyPayload::AbandonConflictBranch => {
+                Self::AbandonConflictBranch
+            }
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_conflict(
+    state: State<'_, Mutex<AppState>>,
+    index: usize,
+    strategy: ConflictResolutionStrategyPayload,
+) -> Result<(), String> {
+    state
+        .lock()
+        .unwrap()
+        .worker_tx
+        .send(BgCmd::ResolveConflict {
+            index,
+            strategy: strategy.into(),
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

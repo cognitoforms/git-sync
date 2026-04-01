@@ -2,7 +2,7 @@ mod transport;
 
 use crate::error::{Result, SyncError};
 use chrono::Local;
-use git2::{BranchType, MergeOptions, Oid, Repository, Status, StatusOptions};
+use git2::{BranchType, FileFavor, MergeOptions, Oid, Repository, Status, StatusOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -944,6 +944,114 @@ impl RepositorySynchronizer {
             fallback_branch
         );
 
+        Ok(())
+    }
+
+    /// Resolve a direct conflict by merging the remote branch and keeping our
+    /// version for every conflicting file.
+    pub fn resolve_keep_mine(&self) -> Result<()> {
+        info!("Resolving conflict: keeping our version");
+        self.do_merge_with_favor(true)
+    }
+
+    /// Resolve a direct conflict by merging the remote branch and accepting the
+    /// remote version for every conflicting file.
+    pub fn resolve_accept_remote(&self) -> Result<()> {
+        info!("Resolving conflict: accepting remote version");
+        self.do_merge_with_favor(false)
+    }
+
+    fn do_merge_with_favor(&self, keep_ours: bool) -> Result<()> {
+        let branch_name = self.get_current_branch()?;
+        let remote_ref_name = format!(
+            "refs/remotes/{}/{}",
+            self.config.remote_name, branch_name
+        );
+        let remote_ref = self.repo.find_reference(&remote_ref_name).map_err(|_| {
+            SyncError::Other(format!("Remote branch {} not found", branch_name))
+        })?;
+        let remote_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
+
+        let mut merge_opts = MergeOptions::new();
+        merge_opts.file_favor(if keep_ours {
+            FileFavor::Ours
+        } else {
+            FileFavor::Theirs
+        });
+
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo
+            .merge(&[&remote_annotated], Some(&mut merge_opts), Some(&mut co))
+            .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
+
+        // Stage the merge result and commit (MERGE_HEAD makes it a merge commit).
+        let mut index = self.repo.index()?;
+        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+        index.write()?;
+
+        self.auto_commit()?;
+        self.repo.cleanup_state()?;
+
+        info!("Conflict resolved");
+        Ok(())
+    }
+
+    /// Abandon the conflict branch: reset back to the remote target branch,
+    /// discarding the local fallback commits. The fallback branch is deleted
+    /// locally (it may still exist on the remote as a record).
+    pub fn abandon_conflict_branch(&self) -> Result<()> {
+        let current_branch = self.get_current_branch()?;
+        if !current_branch.starts_with(FALLBACK_BRANCH_PREFIX) {
+            return Err(SyncError::Other("Not on a conflict branch".to_string()));
+        }
+
+        let target_branch = self.get_target_branch()?;
+        let remote_target_ref = format!(
+            "refs/remotes/{}/{}",
+            self.config.remote_name, target_branch
+        );
+        let remote_ref = self.repo.find_reference(&remote_target_ref).map_err(|_| {
+            SyncError::Other(format!("Remote target branch {} not found", target_branch))
+        })?;
+        let remote_oid = remote_ref
+            .target()
+            .ok_or_else(|| SyncError::Other("Remote target has no OID".to_string()))?;
+
+        let target_ref_name = format!("refs/heads/{}", target_branch);
+
+        // Update or create the local target branch at the remote OID.
+        match self.repo.find_reference(&target_ref_name) {
+            Ok(_) => {
+                self.repo.reference(
+                    &target_ref_name,
+                    remote_oid,
+                    true,
+                    "git-sync: reset to remote",
+                )?;
+            }
+            Err(_) => {
+                let remote_commit = self.repo.find_commit(remote_oid)?;
+                self.repo.branch(&target_branch, &remote_commit, false)?;
+            }
+        }
+
+        // Checkout the target branch.
+        let object = self.repo.find_object(remote_oid, None)?;
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo.checkout_tree(&object, Some(&mut co))?;
+        self.repo.set_head(&target_ref_name)?;
+
+        // Delete the fallback branch (best-effort).
+        if let Ok(mut branch) = self.repo.find_branch(&current_branch, BranchType::Local) {
+            let _ = branch.delete();
+        }
+
+        info!(
+            "Abandoned conflict branch {}, returned to {}",
+            current_branch, target_branch
+        );
         Ok(())
     }
 

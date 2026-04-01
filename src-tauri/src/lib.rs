@@ -41,6 +41,7 @@ mod tests {
                 commands::pick_folder,
                 commands::get_log_history,
                 commands::get_conflict_info,
+                commands::resolve_conflict,
             ])
             .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 

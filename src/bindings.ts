@@ -15,6 +15,7 @@ export const commands = {
 	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
 	getConflictInfo: (index: number) => typedError<ConflictInfoPayload, string>(__TAURI_INVOKE("get_conflict_info", { index })),
+	resolveConflict: (index: number, strategy: ConflictResolutionStrategyPayload) => typedError<null, string>(__TAURI_INVOKE("resolve_conflict", { index, strategy })),
 };
 
 /** Events */
@@ -34,6 +35,8 @@ export type ConflictInfoPayload = {
 	conflict_branch_name: string | null,
 	target_branch: string,
 };
+
+export type ConflictResolutionStrategyPayload = "keep_mine" | "accept_remote" | "abandon_conflict_branch";
 
 export type DesktopConfig = {
 	global?: GlobalSettings,
