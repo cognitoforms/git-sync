@@ -16,6 +16,10 @@ pub enum BgCmd {
     Reconfigure(DesktopConfig),
 }
 
+pub fn build_sync_config_pub(cfg: &RepoConfig) -> SyncConfig {
+    build_sync_config(cfg)
+}
+
 fn build_sync_config(cfg: &RepoConfig) -> SyncConfig {
     SyncConfig {
         sync_new_files: cfg.sync_new_files,
