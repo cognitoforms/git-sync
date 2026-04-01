@@ -248,14 +248,16 @@ export default function RepoListView({
 							/>
 						)}
 						{displayConfig != null && displayIdx !== null && (
-							<RepoDetailSidebar
-								idx={displayIdx}
-								config={displayConfig}
-								status={displayStatus}
-								onClose={() => setSelectedRepo(null)}
-								onSync={() => syncNowMutation.mutate(displayIdx!)}
-								onOpenSettings={() => onOpenSettings(displayIdx)}
-							/>
+							<div className="h-full" style={{ width: sidebarWidth }}>
+								<RepoDetailSidebar
+									idx={displayIdx}
+									config={displayConfig}
+									status={displayStatus}
+									onClose={() => setSelectedRepo(null)}
+									onSync={() => syncNowMutation.mutate(displayIdx!)}
+									onOpenSettings={() => onOpenSettings(displayIdx)}
+								/>
+							</div>
 						)}
 					</div>
 				)}
