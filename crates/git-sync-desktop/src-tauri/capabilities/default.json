@@ -11,7 +11,7 @@
 		"core:window:allow-close",
 		"dialog:allow-open",
 		"os:default",
-		"process:allow-relaunch",
+		"process:default",
 		"updater:default"
 	]
 }
