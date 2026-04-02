@@ -1,9 +1,19 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { platform } from "@tauri-apps/plugin-os";
-import { ArrowLeft, Minus, Moon, Square, Sun, X } from "@phosphor-icons/react";
+import {
+	ArrowCircleUp,
+	ArrowLeft,
+	ArrowsClockwise,
+	Minus,
+	Moon,
+	Square,
+	Sun,
+	X,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useIsFullscreen } from "@/hooks/useIsFullscreen";
+import { useUpdater } from "@/hooks/useUpdater";
 import { useTheme } from "./ThemeProvider";
 import StatusDot from "./StatusDot";
 
@@ -29,6 +39,7 @@ export default function TitleBar({
 }: Props) {
 	const { resolvedTheme, setTheme } = useTheme();
 	const isFullscreen = useIsFullscreen();
+	const { update, status: updaterStatus, install } = useUpdater();
 
 	return (
 		<div
@@ -83,6 +94,23 @@ export default function TitleBar({
 
 			{/* Theme toggle + window controls */}
 			<div className="flex h-full shrink-0">
+				{update && (
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onClick={install}
+						disabled={updaterStatus === "installing"}
+						className="text-primary h-full w-9 rounded-none"
+						aria-label={`Update to ${update.version}`}
+						title={`Update to ${update.version}`}
+					>
+						{updaterStatus === "installing" ? (
+							<ArrowsClockwise size={13} className="animate-spin" />
+						) : (
+							<ArrowCircleUp size={14} weight="fill" />
+						)}
+					</Button>
+				)}
 				<Button
 					variant="ghost"
 					size="icon-sm"
