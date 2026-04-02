@@ -1,0 +1,140 @@
+.mismerge {
+	width: 100%;
+	border: 1px solid var(--primary-200);
+	border-radius: 4px;
+	height: 600px;
+	font-size: 1rem;
+	background: var(--background);
+	color: var(--primary-600);
+
+	--background: #ffffff;
+
+	--primary-100: #fbfcfc;
+	--primary-200: #ebebeb;
+	--primary-300: #a8abad;
+	--primary-400: #797b7e;
+	--primary-500: #3a3a3a;
+	--primary-600: #323232;
+
+	--selection: rgba(161, 240, 204, 0.25);
+
+	.msm__footer {
+		background-color: var(--background);
+		border-top: var(--primary-200) 1px solid;
+	}
+
+	.msm__footer-content span {
+		color: var(--primary-400);
+	}
+
+	.msm__view-content textarea {
+		color: var(--primary-600);
+		caret-color: var(--primary-500);
+	}
+
+	.msm__view-content textarea::selection {
+		background: var(--selection);
+	}
+
+	.msm__connector,
+	.msm__side-panel {
+		background-color: var(--primary-100);
+	}
+
+	.msm__side-panel {
+		color: var(--primary-400);
+		font-weight: 500;
+	}
+
+	.msm__merge-button,
+	.msm__resolve-button,
+	.msm__delete-button {
+		color: var(--primary-400);
+	}
+
+	.msm__merge-button:hover,
+	.msm__resolve-button:hover,
+	.msm__delete-button:hover {
+		color: var(--primary-500);
+	}
+
+	/* Scrollbar for Chromium-based browser */
+
+	::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	::-webkit-scrollbar-track {
+		background: none;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: var(--primary-200);
+		border-radius: 9999px;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--primary-400);
+	}
+}
+
+.dark .mismerge {
+	background: #0e0e0e;
+	color: #d8d8db;
+
+	--background: #0e0e0e;
+	--primary-100: #141414;
+	--primary-200: #232325;
+	--primary-300: #676868;
+	--primary-400: #9fa0a4;
+	--primary-500: #e3e3e3;
+	--primary-600: #d8d8db;
+	--selection: rgba(87, 130, 111, 0.25);
+
+	.msm__footer {
+		background-color: #0e0e0e;
+		border-top: #232325 1px solid;
+	}
+
+	.msm__footer-content span {
+		color: #9fa0a4;
+	}
+
+	.msm__view-content textarea {
+		color: #d8d8db;
+		caret-color: #e3e3e3;
+	}
+
+	.msm__view-content textarea::selection {
+		background: rgba(87, 130, 111, 0.25);
+	}
+
+	.msm__connector,
+	.msm__side-panel {
+		background-color: #141414;
+	}
+
+	.msm__side-panel {
+		color: #9fa0a4;
+	}
+
+	.msm__merge-button,
+	.msm__resolve-button,
+	.msm__delete-button {
+		color: #9fa0a4;
+	}
+
+	.msm__merge-button:hover,
+	.msm__resolve-button:hover,
+	.msm__delete-button:hover {
+		color: #e3e3e3;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: #232325;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: #676868;
+	}
+}
