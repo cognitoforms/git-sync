@@ -336,8 +336,7 @@ impl WatchManager {
             .periodic_sync_interval_ms
             .map(Duration::from_millis);
 
-        let mut next_periodic_at: Option<Instant> =
-            periodic_duration.map(|d| Instant::now() + d);
+        let mut next_periodic_at: Option<Instant> = periodic_duration.map(|d| Instant::now() + d);
 
         loop {
             let now = Instant::now();
@@ -458,10 +457,8 @@ impl WatchManager {
 
             std::thread::spawn(move || {
                 let outcome = (|| {
-                    let mut synchronizer = RepositorySynchronizer::new_with_detected_branch(
-                        &repo_path,
-                        sync_config,
-                    )?;
+                    let mut synchronizer =
+                        RepositorySynchronizer::new_with_detected_branch(&repo_path, sync_config)?;
                     // If we're on a conflict fallback branch, skip the sync
                     // entirely and surface it as an error so the UI warning
                     // stays visible. When the user resolves the conflict and
@@ -497,9 +494,7 @@ impl WatchManager {
             match rx.await {
                 Ok(outcome) => outcome,
                 Err(_) => SyncOutcome {
-                    result: Err(SyncError::TaskError(
-                        "Sync thread disconnected".to_string(),
-                    )),
+                    result: Err(SyncError::TaskError("Sync thread disconnected".to_string())),
                     sync_state: None,
                     repo_state: None,
                 },

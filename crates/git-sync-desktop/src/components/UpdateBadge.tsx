@@ -13,12 +13,13 @@ export default function UpdateBadge() {
 			variant="ghost"
 			size="icon-sm"
 			onClick={() =>
-			install().catch(() =>
-				toast.error("Update failed", {
-					description: "Could not install the update. Please try again later.",
-				}),
-			)
-		}
+				install().catch(() =>
+					toast.error("Update failed", {
+						description:
+							"Could not install the update. Please try again later.",
+					}),
+				)
+			}
 			disabled={status === "installing"}
 			className="text-primary h-full w-9 rounded-none"
 			aria-label={`Update to ${update.version}`}

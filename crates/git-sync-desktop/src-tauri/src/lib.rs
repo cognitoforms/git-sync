@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(target_os = "macos")]
 use tauri::LogicalPosition;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-use tauri_specta::{Builder, Event, collect_commands, collect_events};
+use tauri_specta::{collect_commands, collect_events, Builder, Event};
 use tokio::sync::watch;
 use tracing_subscriber::prelude::*;
 
@@ -23,7 +23,7 @@ use worker::BgCmd;
 
 #[cfg(test)]
 mod tests {
-    use tauri_specta::{Builder, collect_commands, collect_events};
+    use tauri_specta::{collect_commands, collect_events, Builder};
 
     use super::*;
 
@@ -139,7 +139,9 @@ pub fn run() {
             worker_tx: cmd_tx,
         }))
         .manage(Mutex::new(StatusState(status_rx)))
-        .manage(LogState { history: log_history })
+        .manage(LogState {
+            history: log_history,
+        })
         .setup(move |app| {
             builder.mount_events(app);
 

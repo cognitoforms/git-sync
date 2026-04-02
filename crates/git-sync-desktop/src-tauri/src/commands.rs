@@ -22,10 +22,7 @@ pub fn get_status(state: State<'_, Mutex<StatusState>>) -> AppStatus {
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_config(
-    state: State<'_, Mutex<AppState>>,
-    config: DesktopConfig,
-) -> Result<(), String> {
+pub fn set_config(state: State<'_, Mutex<AppState>>, config: DesktopConfig) -> Result<(), String> {
     let mut s = state.lock().unwrap();
     crate::config::save_config(&config).map_err(|e| e.to_string())?;
     s.worker_tx
@@ -60,20 +57,16 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String
     app.dialog().file().pick_folder(move |path_opt| {
         let _ = tx.send(path_opt);
     });
-    rx.await
-        .map_err(|e| e.to_string())
-        .map(|path_opt| {
-            path_opt.and_then(|p| p.into_path().ok())
-                    .map(|pb| pb.to_string_lossy().to_string())
-        })
+    rx.await.map_err(|e| e.to_string()).map(|path_opt| {
+        path_opt
+            .and_then(|p| p.into_path().ok())
+            .map(|pb| pb.to_string_lossy().to_string())
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_log_history(
-    repo: Option<String>,
-    state: State<'_, LogState>,
-) -> Vec<FrontendLogEntry> {
+pub fn get_log_history(repo: Option<String>, state: State<'_, LogState>) -> Vec<FrontendLogEntry> {
     let hist = state.history.lock().unwrap();
     hist.iter()
         .filter(|e| match &repo {

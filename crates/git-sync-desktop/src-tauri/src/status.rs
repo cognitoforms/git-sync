@@ -4,32 +4,35 @@ use serde::Serialize;
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(tag = "category", rename_all = "snake_case")]
 pub enum SyncErrorPayload {
-    Auth           { message: String },
-    Network        { message: String },
-    Conflict       { message: String },
+    Auth { message: String },
+    Network { message: String },
+    Conflict { message: String },
     ConflictBranch { branch: String, message: String },
-    Config         { message: String },
-    State          { message: String },
-    Unknown        { message: String },
+    Config { message: String },
+    State { message: String },
+    Unknown { message: String },
 }
 
 impl From<&SyncErrorSummary> for SyncErrorPayload {
     fn from(s: &SyncErrorSummary) -> Self {
         let msg = s.message.clone();
         match s.category {
-            "auth"            => Self::Auth     { message: msg },
-            "network"         => Self::Network  { message: msg },
-            "conflict"        => Self::Conflict { message: msg },
+            "auth" => Self::Auth { message: msg },
+            "network" => Self::Network { message: msg },
+            "conflict" => Self::Conflict { message: msg },
             "conflict_branch" => {
                 let branch = match &s.extra {
                     Some(SyncErrorExtra::ConflictBranch { branch }) => branch.clone(),
                     _ => String::new(),
                 };
-                Self::ConflictBranch { branch, message: msg }
+                Self::ConflictBranch {
+                    branch,
+                    message: msg,
+                }
             }
             "config" => Self::Config { message: msg },
-            "state"  => Self::State  { message: msg },
-            _        => Self::Unknown { message: msg },
+            "state" => Self::State { message: msg },
+            _ => Self::Unknown { message: msg },
         }
     }
 }

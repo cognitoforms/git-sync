@@ -7,7 +7,9 @@ use tokio::task::AbortHandle;
 use tracing::Instrument as _;
 
 use crate::config::{DesktopConfig, RepoConfig};
-use crate::status::{AppStatus, RepoStatus, SyncErrorPayload, repo_state_label, sync_state_id, sync_state_label};
+use crate::status::{
+    repo_state_label, sync_state_id, sync_state_label, AppStatus, RepoStatus, SyncErrorPayload,
+};
 
 pub enum BgCmd {
     SyncNow(usize),
@@ -196,7 +198,9 @@ async fn run_repo(idx: usize, cfg: &RepoConfig, status_tx: Arc<watch::Sender<App
     if let Some(Err(e)) = watch_result {
         status_tx.send_if_modified(|app_status| {
             if let Some(rs) = app_status.repos.get_mut(idx) {
-                rs.error = Some(SyncErrorPayload::from(&git_sync_lib::SyncErrorSummary::from(&e)));
+                rs.error = Some(SyncErrorPayload::from(
+                    &git_sync_lib::SyncErrorSummary::from(&e),
+                ));
                 true
             } else {
                 false

@@ -1,8 +1,8 @@
 use chrono::Utc;
 use serde::Serialize;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{Event, Level, Subscriber};
 use tracing::field::{Field, Visit};
+use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
@@ -89,7 +89,9 @@ where
             return;
         }
 
-        let mut visitor = MessageVisitor { message: String::new() };
+        let mut visitor = MessageVisitor {
+            message: String::new(),
+        };
         event.record(&mut visitor);
         if visitor.message.is_empty() {
             return;

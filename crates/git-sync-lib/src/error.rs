@@ -117,12 +117,16 @@ pub struct SyncErrorSummary {
 impl From<&SyncError> for SyncErrorSummary {
     fn from(e: &SyncError) -> Self {
         let extra = match e {
-            SyncError::OnConflictBranch { branch } => {
-                Some(SyncErrorExtra::ConflictBranch { branch: branch.clone() })
-            }
+            SyncError::OnConflictBranch { branch } => Some(SyncErrorExtra::ConflictBranch {
+                branch: branch.clone(),
+            }),
             _ => None,
         };
-        Self { message: e.to_string(), category: e.category(), extra }
+        Self {
+            message: e.to_string(),
+            category: e.category(),
+            extra,
+        }
     }
 }
 
