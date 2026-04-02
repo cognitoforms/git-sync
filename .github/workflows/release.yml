@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # ── Step 1: Release Please ────────────────────────────────────────────────────
+  # Maintains a "Release PR" that accumulates conventional commits into a
+  # CHANGELOG and bumps version files.  When the PR is merged, it creates a
+  # GitHub release and the build jobs below run automatically.
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # ── Step 2: Build & publish artifacts ─────────────────────────────────────────
+  # Only runs when release-please created a new release (i.e. the release PR
+  # was just merged).  Builds signed installers on all four targets and uploads
+  # them — plus the updater latest.json — to the GitHub release.
+  build:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: single universal binary covers both Apple Silicon and Intel
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+          # Linux x86-64
+          - platform: ubuntu-22.04
+            args: ""
+          # Linux ARM64 (native runner — free for public repos)
+          - platform: ubuntu-22.04-arm
+            args: ""
+          # Windows x86-64
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Build from the exact tag release-please just created so that the
+          # version numbers in Cargo.toml / tauri.conf.json are already bumped.
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Install Linux system dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # ── Node / pnpm ──────────────────────────────────────────────────────────
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: crates/git-sync-desktop/pnpm-lock.yaml
+
+      # ── Rust ─────────────────────────────────────────────────────────────────
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # macOS needs both targets to produce a universal binary
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+
+      # ── Frontend deps ─────────────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: crates/git-sync-desktop
+        run: pnpm install
+
+      # ── Build & upload to release ─────────────────────────────────────────────
+      # TAURI_SIGNING_PRIVATE_KEY  — content of the .key file produced by
+      #                              `cargo tauri signer generate`
+      # TAURI_SIGNING_PRIVATE_KEY_PASSWORD — passphrase (leave empty if none)
+      #
+      # Add both as repository secrets under Settings → Secrets → Actions.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # Upload to the release that release-please just created rather than
+          # trying to create a new one.
+          releaseId: ${{ needs.release-please.outputs.release_id }}
+          # The app is not at the repository root.
+          projectPath: crates/git-sync-desktop
+          args: ${{ matrix.args }}

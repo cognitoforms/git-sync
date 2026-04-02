@@ -24,5 +24,13 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		]
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "PLACEHOLDER — replace with the public key printed by: cargo tauri signer generate -w ~/.tauri/git-sync.key",
+			"endpoints": [
+				"https://github.com/cognitoforms/git-sync/releases/latest/download/latest.json"
+			]
+		}
 	}
 }
