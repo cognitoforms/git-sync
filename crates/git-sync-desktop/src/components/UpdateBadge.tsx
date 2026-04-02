@@ -1,4 +1,5 @@
 import { ArrowCircleUp, ArrowsClockwise } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useUpdater } from "@/hooks/useUpdater";
 
@@ -11,7 +12,13 @@ export default function UpdateBadge() {
 		<Button
 			variant="ghost"
 			size="icon-sm"
-			onClick={install}
+			onClick={() =>
+			install().catch(() =>
+				toast.error("Update failed", {
+					description: "Could not install the update. Please try again later.",
+				}),
+			)
+		}
 			disabled={status === "installing"}
 			className="text-primary h-full w-9 rounded-none"
 			aria-label={`Update to ${update.version}`}

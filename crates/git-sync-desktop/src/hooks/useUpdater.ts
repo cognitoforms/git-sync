@@ -30,6 +30,7 @@ export function useUpdater(): UpdaterState {
 		} catch (e) {
 			console.warn("[updater] update install failed:", e);
 			setStatus("idle");
+			throw e;
 		}
 	}, [update, status]);
 
