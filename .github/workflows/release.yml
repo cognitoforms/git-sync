@@ -18,7 +18,6 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      release_id: ${{ steps.release.outputs.id }}
       release_body: ${{ steps.release.outputs.body }}
     steps:
       - uses: googleapis/release-please-action@v4
@@ -108,13 +107,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # Upload to the release that release-please just created rather than
-          # trying to create a new one.
-          releaseId: ${{ needs.release-please.outputs.release_id }}
-          # tagName and releaseBody are passed explicitly so that uploadVersionJSON
-          # can construct correct asset download URLs and populate the `notes`
-          # field in latest.json.  Without these, both default to empty string.
+          # tagName lets tauri-action look up the release that release-please
+          # already created and upload artifacts to it rather than creating a
+          # new one.  It is also passed directly into uploadVersionJSON to
+          # construct the asset download URLs embedded in latest.json.
           tagName: ${{ needs.release-please.outputs.tag_name }}
+          # Becomes the `notes` field in latest.json shown to the user when an
+          # update is available.
           releaseBody: ${{ needs.release-please.outputs.release_body }}
           # The app is not at the repository root.
           projectPath: crates/git-sync-desktop
