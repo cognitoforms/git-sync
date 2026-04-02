@@ -27,7 +27,8 @@ export function useUpdater(): UpdaterState {
 		try {
 			await update.downloadAndInstall();
 			await relaunch();
-		} catch {
+		} catch (e) {
+			console.warn("[updater] update install failed:", e);
 			setStatus("idle");
 		}
 	}, [update, status]);
