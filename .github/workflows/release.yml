@@ -19,6 +19,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       release_id: ${{ steps.release.outputs.id }}
+      release_body: ${{ steps.release.outputs.body }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -110,6 +111,11 @@ jobs:
           # Upload to the release that release-please just created rather than
           # trying to create a new one.
           releaseId: ${{ needs.release-please.outputs.release_id }}
+          # tagName and releaseBody are passed explicitly so that uploadVersionJSON
+          # can construct correct asset download URLs and populate the `notes`
+          # field in latest.json.  Without these, both default to empty string.
+          tagName: ${{ needs.release-please.outputs.tag_name }}
+          releaseBody: ${{ needs.release-please.outputs.release_body }}
           # The app is not at the repository root.
           projectPath: crates/git-sync-desktop
           args: ${{ matrix.args }}
