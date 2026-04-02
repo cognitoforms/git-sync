@@ -17,7 +17,7 @@ export function useUpdater(): UpdaterState {
 	useEffect(() => {
 		check()
 			.then((u) => setUpdate(u ?? null))
-			.catch(() => {})
+			.catch((e) => console.warn("[updater] update check failed:", e))
 			.finally(() => setStatus("idle"));
 	}, []);
 

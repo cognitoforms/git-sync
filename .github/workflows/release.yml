@@ -16,9 +16,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      release_body: ${{ steps.release.outputs.body }}
+      release_created: ${{ steps.release.outputs['crates/git-sync-desktop/src-tauri--release_created'] }}
+      tag_name: ${{ steps.release.outputs['crates/git-sync-desktop/src-tauri--tag_name'] }}
+      release_body: ${{ steps.release.outputs['crates/git-sync-desktop/src-tauri--body'] }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -93,7 +93,7 @@ jobs:
       # ── Frontend deps ─────────────────────────────────────────────────────────
       - name: Install frontend dependencies
         working-directory: crates/git-sync-desktop
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # ── Build & upload to release ─────────────────────────────────────────────
       # TAURI_SIGNING_PRIVATE_KEY  — content of the .key file produced by
@@ -101,7 +101,7 @@ jobs:
       # TAURI_SIGNING_PRIVATE_KEY_PASSWORD — passphrase (leave empty if none)
       #
       # Add both as repository secrets under Settings → Secrets → Actions.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
