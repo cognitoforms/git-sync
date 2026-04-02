@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useIsFullscreen } from "@/hooks/useIsFullscreen";
 import { useTheme } from "./ThemeProvider";
 import StatusDot from "./StatusDot";
+import UpdateBadge from "./UpdateBadge";
 
 const appWindow = getCurrentWindow();
 const IS_MAC = platform() === "macos";
@@ -83,6 +84,7 @@ export default function TitleBar({
 
 			{/* Theme toggle + window controls */}
 			<div className="flex h-full shrink-0">
+				<UpdateBadge />
 				<Button
 					variant="ghost"
 					size="icon-sm"

@@ -24,5 +24,13 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		]
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxNEFGRUQzRDhCMTBFRUEKUldUcURySFkwLzVLMFhHVXlmclVpb0VPaEgvVnRrenBYNU5PaVNhLzRxaWQ2cVJYVUZJMktwU2sK",
+			"endpoints": [
+				"https://github.com/cognitoforms/git-sync/releases/latest/download/latest.json"
+			]
+		}
 	}
 }

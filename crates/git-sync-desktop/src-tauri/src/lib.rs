@@ -130,6 +130,8 @@ pub fn run() {
     let invoke_handler = builder.invoke_handler();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(AppState {

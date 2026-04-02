@@ -14,9 +14,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 git-sync-lib    = { path = "../../git-sync-lib" }
 
-tauri               = { version = "2", features = ["tray-icon"] }
-tauri-plugin-dialog = "2"
-tauri-plugin-os     = "2"
+tauri                 = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog   = "2"
+tauri-plugin-os       = "2"
+tauri-plugin-process  = "2"
+tauri-plugin-updater  = "2"
 
 specta              = { version = "=2.0.0-rc.24", features = ["derive", "chrono"] }
 specta-typescript   = "0.0.11"
