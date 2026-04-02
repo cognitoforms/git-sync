@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FolderOpen, Code, Warning, GitBranch } from "@phosphor-icons/react";
 import {
 	useConflictInfo,
@@ -7,6 +8,7 @@ import {
 } from "@/hooks/queries";
 import type { RepoStatus } from "@/bindings";
 import type { ResolvedRepo } from "@/hooks/queries";
+import MergeEditorModal from "./MergeEditorModal";
 
 interface Props {
 	idx: number;
@@ -15,6 +17,7 @@ interface Props {
 }
 
 export default function ConflictPanel({ idx, config, status }: Props) {
+	const [mergeEditorOpen, setMergeEditorOpen] = useState(false);
 	const category = status.error?.category;
 	const isConflictBranch = category === "conflict_branch";
 	const isConflict = category === "conflict";
@@ -37,63 +40,77 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 
 	if (isConflictBranch) {
 		return (
-			<div className="mt-1 space-y-2 rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-				<div className="flex items-center gap-1.5 font-medium">
-					<GitBranch weight="bold" className="shrink-0" />
-					Your changes were saved to a backup branch
+			<>
+				<div className="mt-1 space-y-2 rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+					<div className="flex items-center gap-1.5 font-medium">
+						<GitBranch weight="bold" className="shrink-0" />
+						Your changes were saved to a backup branch
+					</div>
+					<p className="text-amber-700 dark:text-amber-400">
+						Someone else changed the same files on{" "}
+						<span className="font-mono font-medium">{targetBranch}</span> at the
+						same time. Git Sync saved your work to{" "}
+						{branchName ? (
+							<span className="font-mono font-medium">{branchName}</span>
+						) : (
+							"a backup branch"
+						)}{" "}
+						and will merge it back automatically when possible.
+					</p>
+					{files.length > 0 && (
+						<ul className="space-y-0.5">
+							{files.map((f) => (
+								<li
+									key={f}
+									className="font-mono text-amber-700 dark:text-amber-400"
+								>
+									{f}
+								</li>
+							))}
+						</ul>
+					)}
+					<div className="flex flex-wrap gap-1.5 pt-0.5">
+						<ActionButton
+							onClick={() => setMergeEditorOpen(true)}
+							pending={false}
+							variant="amber"
+						>
+							Resolve conflicts
+						</ActionButton>
+						<ActionButton
+							onClick={() =>
+								resolveConflict.mutate({
+									index: idx,
+									strategy: "abandon_conflict_branch",
+								})
+							}
+							pending={resolveConflict.isPending}
+							variant="amber"
+						>
+							Discard changes, return to {targetBranch}
+						</ActionButton>
+					</div>
+					<div className="flex flex-wrap gap-1.5">
+						<ExternalButton
+							onClick={() => revealInFinder.mutate(config.repo_path)}
+							icon={<FolderOpen weight="bold" />}
+						>
+							Reveal in Finder
+						</ExternalButton>
+						<ExternalButton
+							onClick={() => openVSCode.mutate(config.repo_path)}
+							icon={<Code weight="bold" />}
+						>
+							Open in VS Code
+						</ExternalButton>
+					</div>
 				</div>
-				<p className="text-amber-700 dark:text-amber-400">
-					Someone else changed the same files on{" "}
-					<span className="font-mono font-medium">{targetBranch}</span> at the
-					same time. Git Sync saved your work to{" "}
-					{branchName ? (
-						<span className="font-mono font-medium">{branchName}</span>
-					) : (
-						"a backup branch"
-					)}{" "}
-					and will merge it back automatically when possible.
-				</p>
-				{files.length > 0 && (
-					<ul className="space-y-0.5">
-						{files.map((f) => (
-							<li
-								key={f}
-								className="font-mono text-amber-700 dark:text-amber-400"
-							>
-								{f}
-							</li>
-						))}
-					</ul>
-				)}
-				<div className="flex flex-wrap gap-1.5 pt-0.5">
-					<ActionButton
-						onClick={() =>
-							resolveConflict.mutate({
-								index: idx,
-								strategy: "abandon_conflict_branch",
-							})
-						}
-						pending={resolveConflict.isPending}
-						variant="amber"
-					>
-						Discard my changes, return to {targetBranch}
-					</ActionButton>
-				</div>
-				<div className="flex flex-wrap gap-1.5">
-					<ExternalButton
-						onClick={() => revealInFinder.mutate(config.repo_path)}
-						icon={<FolderOpen weight="bold" />}
-					>
-						Reveal in Finder
-					</ExternalButton>
-					<ExternalButton
-						onClick={() => openVSCode.mutate(config.repo_path)}
-						icon={<Code weight="bold" />}
-					>
-						Open in VS Code
-					</ExternalButton>
-				</div>
-			</div>
+				<MergeEditorModal
+					isOpen={mergeEditorOpen}
+					onClose={() => setMergeEditorOpen(false)}
+					repoIdx={idx}
+				/>
+			</>
 		);
 	}
 
@@ -119,6 +136,13 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 				</ul>
 			)}
 			<div className="flex flex-wrap gap-1.5 pt-0.5">
+				<ActionButton
+					onClick={() => setMergeEditorOpen(true)}
+					pending={false}
+					variant="red"
+				>
+					Resolve conflicts
+				</ActionButton>
 				<ActionButton
 					onClick={() =>
 						resolveConflict.mutate({ index: idx, strategy: "keep_mine" })
@@ -152,6 +176,11 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 					Open in VS Code
 				</ExternalButton>
 			</div>
+			<MergeEditorModal
+				isOpen={mergeEditorOpen}
+				onClose={() => setMergeEditorOpen(false)}
+				repoIdx={idx}
+			/>
 		</div>
 	);
 }
@@ -173,7 +202,7 @@ function ActionButton({
 			: "bg-red-200 text-red-900 hover:bg-red-300 dark:bg-red-800/40 dark:text-red-200 dark:hover:bg-red-800/60";
 	return (
 		<button
-			className={`rounded px-2 py-0.5 font-medium disabled:opacity-50 ${cls}`}
+			className={`cursor-pointer rounded px-2 py-0.5 font-medium disabled:opacity-50 ${cls}`}
 			onClick={onClick}
 			disabled={pending}
 		>
@@ -193,7 +222,7 @@ function ExternalButton({
 }) {
 	return (
 		<button
-			className="flex items-center gap-1 rounded bg-black/5 px-2 py-0.5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15"
+			className="flex cursor-pointer items-center gap-1 rounded bg-black/5 px-2 py-0.5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15"
 			onClick={onClick}
 		>
 			{icon}
