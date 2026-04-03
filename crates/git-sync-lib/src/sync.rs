@@ -975,8 +975,7 @@ impl RepositorySynchronizer {
         if self.is_on_fallback_branch()? {
             // In-memory merge to extract 3-way blobs without touching the working tree
             let target_branch = self.get_target_branch()?;
-            let target_ref =
-                format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+            let target_ref = format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
             let target_reference = self.repo.find_reference(&target_ref).map_err(|_| {
                 SyncError::Other(format!("Remote branch {} not found", target_branch))
             })?;
@@ -985,9 +984,7 @@ impl RepositorySynchronizer {
             let virtual_index = self
                 .repo
                 .merge_commits(&our_commit, &target_commit, None)
-                .map_err(|e| {
-                    SyncError::Other(format!("In-memory merge failed: {}", e))
-                })?;
+                .map_err(|e| SyncError::Other(format!("In-memory merge failed: {}", e)))?;
             return self.extract_conflict_contents_from_index(&virtual_index);
         }
 
@@ -1140,7 +1137,10 @@ impl RepositorySynchronizer {
         }
 
         self.repo.cleanup_state()?;
-        info!("Conflict branch merge completed, returned to {}", target_branch);
+        info!(
+            "Conflict branch merge completed, returned to {}",
+            target_branch
+        );
         Ok(())
     }
 
@@ -1174,13 +1174,11 @@ impl RepositorySynchronizer {
 
     fn do_merge_with_favor(&self, keep_ours: bool) -> Result<()> {
         let branch_name = self.get_current_branch()?;
-        let remote_ref_name = format!(
-            "refs/remotes/{}/{}",
-            self.config.remote_name, branch_name
-        );
-        let remote_ref = self.repo.find_reference(&remote_ref_name).map_err(|_| {
-            SyncError::Other(format!("Remote branch {} not found", branch_name))
-        })?;
+        let remote_ref_name = format!("refs/remotes/{}/{}", self.config.remote_name, branch_name);
+        let remote_ref = self
+            .repo
+            .find_reference(&remote_ref_name)
+            .map_err(|_| SyncError::Other(format!("Remote branch {} not found", branch_name)))?;
         let remote_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
 
         let mut merge_opts = MergeOptions::new();
@@ -1218,10 +1216,8 @@ impl RepositorySynchronizer {
         }
 
         let target_branch = self.get_target_branch()?;
-        let remote_target_ref = format!(
-            "refs/remotes/{}/{}",
-            self.config.remote_name, target_branch
-        );
+        let remote_target_ref =
+            format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
         let remote_ref = self.repo.find_reference(&remote_target_ref).map_err(|_| {
             SyncError::Other(format!("Remote target branch {} not found", target_branch))
         })?;
@@ -1325,9 +1321,9 @@ impl RepositorySynchronizer {
                         target_reference.peel_to_commit(),
                     ) {
                         let merge_opts = MergeOptions::new();
-                        if let Ok(virtual_index) = self
-                            .repo
-                            .merge_commits(&our_commit, &target_commit, Some(&merge_opts))
+                        if let Ok(virtual_index) =
+                            self.repo
+                                .merge_commits(&our_commit, &target_commit, Some(&merge_opts))
                         {
                             if virtual_index.has_conflicts() {
                                 let conflicts = virtual_index.conflicts()?;
