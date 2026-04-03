@@ -18,6 +18,18 @@ fmt-check-frontend:
 [parallel]
 fmt-check: fmt-check-rust fmt-check-frontend
 
+# Fix Rust formatting
+fmt-rust:
+    cargo fmt --all
+
+# Fix frontend formatting with Prettier
+fmt-frontend:
+    pnpm format
+
+# Fix formatting (Rust + frontend in parallel)
+[parallel]
+fmt: fmt-rust fmt-frontend
+
 # Run cargo check on the workspace
 check-rust:
     cargo check
