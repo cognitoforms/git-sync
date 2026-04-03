@@ -212,12 +212,15 @@ async fn run_resolve(
         }
     });
 
-    let result = RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
-        .and_then(|syncer| match strategy {
-            ConflictResolutionStrategy::KeepMine => syncer.resolve_keep_mine(),
-            ConflictResolutionStrategy::AcceptRemote => syncer.resolve_accept_remote(),
-            ConflictResolutionStrategy::AbandonConflictBranch => syncer.abandon_conflict_branch(),
-        });
+    let result =
+        RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
+            .and_then(|syncer| match strategy {
+                ConflictResolutionStrategy::KeepMine => syncer.resolve_keep_mine(),
+                ConflictResolutionStrategy::AcceptRemote => syncer.resolve_accept_remote(),
+                ConflictResolutionStrategy::AbandonConflictBranch => {
+                    syncer.abandon_conflict_branch()
+                }
+            });
 
     status_tx.send_if_modified(|s| {
         if let Some(rs) = s.repos.get_mut(idx) {
@@ -263,14 +266,15 @@ async fn run_complete_merge(
 
     let resolved_content: Vec<ResolvedFileContent> = resolved
         .into_iter()
-        .map(|e| ResolvedFileContent { path: e.path, content: e.content })
+        .map(|e| ResolvedFileContent {
+            path: e.path,
+            content: e.content,
+        })
         .collect();
 
-    let result = RepositorySynchronizer::new_with_detected_branch(
-        &cfg.repo_path,
-        build_sync_config(cfg),
-    )
-    .and_then(|syncer| syncer.complete_conflict_merge(resolved_content));
+    let result =
+        RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
+            .and_then(|syncer| syncer.complete_conflict_merge(resolved_content));
 
     status_tx.send_if_modified(|s| {
         if let Some(rs) = s.repos.get_mut(idx) {
