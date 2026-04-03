@@ -39,9 +39,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS: single universal binary covers both Apple Silicon and Intel
+          # macOS: single universal binary covers both Apple Silicon and Intel.
+          # vendored-openssl compiles OpenSSL from source via the Cargo feature,
+          # which is required because pkg-config doesn't support cross-compilation.
           - platform: macos-latest
-            args: --target universal-apple-darwin
+            args: --target universal-apple-darwin --features vendored-openssl
           # Linux x86-64
           - platform: ubuntu-24.04
             args: ""
@@ -90,23 +92,11 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
 
-      # openssl-sys uses pkg-config which doesn't support cross-compilation.
-      # Vendored mode compiles OpenSSL from source using Clang, which handles
-      # both architectures natively on macOS.
-      - name: Use vendored OpenSSL for macOS cross-compilation
-        if: matrix.platform == 'macos-latest'
-        run: echo "OPENSSL_VENDORED=1" >> $GITHUB_ENV
-
       # ── Frontend deps ─────────────────────────────────────────────────────────
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
       # ── Build & upload to release ─────────────────────────────────────────────
-      # TAURI_SIGNING_PRIVATE_KEY  — content of the .key file produced by
-      #                              `cargo tauri signer generate`
-      # TAURI_SIGNING_PRIVATE_KEY_PASSWORD — passphrase (leave empty if none)
-      #
-      # Add both as repository secrets under Settings → Secrets → Actions.
       - uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -5,8 +5,12 @@ edition = "2021"
 description = "Vendored fork of git-sync-rs: runtime-agnostic automatic git repository synchronization"
 license = "MIT OR Apache-2.0"
 
+[features]
+vendored-openssl = ["openssl/vendored"]
+
 [dependencies]
 git2 = "0.18"
+openssl = { version = "0.10", optional = true }
 thiserror = "1.0"
 chrono = "0.4"
 hostname = "0.3"

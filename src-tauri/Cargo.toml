@@ -11,6 +11,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+vendored-openssl = ["git-sync-lib/vendored-openssl"]
+
 [dependencies]
 git-sync-lib    = { path = "../crates/git-sync-lib" }
 
