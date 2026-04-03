@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/cognitoforms/git-sync/compare/git-sync-tauri-v0.2.1...git-sync-tauri-v0.2.2) (2026-04-03)
+
+
+### Miscellaneous Chores
+
+* release 0.2.2 ([44ca7ca](https://github.com/cognitoforms/git-sync/commit/44ca7ca497bcfe98f69d61a6c17945ece3ec86f1))
+
 ## [0.2.1](https://github.com/cognitoforms/git-sync/compare/git-sync-tauri-v0.2.0...git-sync-tauri-v0.2.1) (2026-04-03)
 
 
