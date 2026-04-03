@@ -2,6 +2,19 @@ use crate::error::{Result, SyncError};
 use std::path::Path;
 use std::process::{Command, Output};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn git_command() -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new("git");
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommitOutcome {
     Created,
@@ -26,7 +39,7 @@ impl CommandGitTransport {
         skip_hooks: bool,
         identity: Option<(&str, &str)>,
     ) -> std::io::Result<Output> {
-        let mut command = Command::new("git");
+        let mut command = git_command();
         command.arg("commit");
         if skip_hooks {
             command.arg("--no-verify");
@@ -171,7 +184,7 @@ impl CommandGitTransport {
 
 impl GitTransport for CommandGitTransport {
     fn fetch_branch(&self, repo_path: &Path, remote: &str, branch: &str) -> Result<()> {
-        let output = Command::new("git")
+        let output = git_command()
             .arg("fetch")
             .arg(remote)
             .arg(branch)
@@ -193,7 +206,7 @@ impl GitTransport for CommandGitTransport {
     }
 
     fn push_refspec(&self, repo_path: &Path, remote: &str, refspec: &str) -> Result<()> {
-        let output = Command::new("git")
+        let output = git_command()
             .arg("push")
             .arg(remote)
             .arg(refspec)
@@ -215,7 +228,7 @@ impl GitTransport for CommandGitTransport {
     }
 
     fn push_branch_upstream(&self, repo_path: &Path, remote: &str, branch: &str) -> Result<()> {
-        let output = Command::new("git")
+        let output = git_command()
             .arg("push")
             .arg("-u")
             .arg(remote)
