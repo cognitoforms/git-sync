@@ -42,7 +42,7 @@ export default function TitleBar({
 			<div
 				className={cn(
 					"flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-hidden",
-					IS_MAC && !isFullscreen ? "pl-[82px]" : "px-2",
+					IS_MAC && !isFullscreen ? "pl-[78px]" : "px-2",
 				)}
 				data-tauri-drag-region
 			>

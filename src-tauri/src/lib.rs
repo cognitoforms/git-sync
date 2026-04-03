@@ -155,7 +155,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             let win_builder = win_builder
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .traffic_light_position(LogicalPosition::new(13, 22))
+                .traffic_light_position(LogicalPosition::new(13, 18))
                 .hidden_title(true);
 
             #[cfg(not(target_os = "macos"))]
