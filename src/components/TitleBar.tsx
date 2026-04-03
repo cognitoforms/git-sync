@@ -83,7 +83,7 @@ export default function TitleBar({
 			</div>
 
 			{/* Theme toggle + window controls */}
-			<div className="flex h-full shrink-0">
+			<div className="flex h-full shrink-0 items-center">
 				<UpdateBadge />
 				<Button
 					variant="ghost"

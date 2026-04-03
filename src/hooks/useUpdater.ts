@@ -7,18 +7,26 @@ type UpdaterStatus = "idle" | "checking" | "installing";
 export interface UpdaterState {
 	update: Update | null;
 	status: UpdaterStatus;
+	dismissed: boolean;
 	install: () => Promise<void>;
+	dismiss: () => void;
 }
 
 export function useUpdater(): UpdaterState {
 	const [update, setUpdate] = useState<Update | null>(null);
 	const [status, setStatus] = useState<UpdaterStatus>("checking");
+	const [dismissed, setDismissed] = useState(false);
 
 	useEffect(() => {
-		check()
-			.then((u) => setUpdate(u ?? null))
-			.catch((e) => console.warn("[updater] update check failed:", e))
-			.finally(() => setStatus("idle"));
+		const run = () =>
+			check()
+				.then((u) => setUpdate(u ?? null))
+				.catch((e) => console.warn("[updater] update check failed:", e))
+				.finally(() => setStatus("idle"));
+
+		run();
+		const id = setInterval(run, 30 * 60 * 1000);
+		return () => clearInterval(id);
 	}, []);
 
 	const install = useCallback(async () => {
@@ -34,5 +42,7 @@ export function useUpdater(): UpdaterState {
 		}
 	}, [update, status]);
 
-	return { update, status, install };
+	const dismiss = useCallback(() => setDismissed(true), []);
+
+	return { update, status, dismissed, install, dismiss };
 }
