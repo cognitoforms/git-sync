@@ -89,9 +89,8 @@ pub fn get_conflict_info(
             .ok_or_else(|| format!("No repository at index {}", index))?
     };
     let sync_config = crate::worker::build_sync_config_pub(&config);
-    let syncer =
-        RepositorySynchronizer::new_with_detected_branch(&config.repo_path, sync_config)
-            .map_err(|e| e.to_string())?;
+    let syncer = RepositorySynchronizer::new_with_detected_branch(&config.repo_path, sync_config)
+        .map_err(|e| e.to_string())?;
 
     let conflicted_files = syncer.get_conflict_info().map_err(|e| e.to_string())?;
     let on_conflict_branch = syncer.is_on_fallback_branch().unwrap_or(false);
@@ -121,9 +120,7 @@ impl From<ConflictResolutionStrategyPayload> for crate::worker::ConflictResoluti
         match p {
             ConflictResolutionStrategyPayload::KeepMine => Self::KeepMine,
             ConflictResolutionStrategyPayload::AcceptRemote => Self::AcceptRemote,
-            ConflictResolutionStrategyPayload::AbandonConflictBranch => {
-                Self::AbandonConflictBranch
-            }
+            ConflictResolutionStrategyPayload::AbandonConflictBranch => Self::AbandonConflictBranch,
         }
     }
 }
@@ -176,9 +173,8 @@ pub fn get_conflict_files_content(
             .ok_or_else(|| format!("No repository at index {}", index))?
     };
     let sync_config = crate::worker::build_sync_config_pub(&config);
-    let syncer =
-        RepositorySynchronizer::new_with_detected_branch(&config.repo_path, sync_config)
-            .map_err(|e| e.to_string())?;
+    let syncer = RepositorySynchronizer::new_with_detected_branch(&config.repo_path, sync_config)
+        .map_err(|e| e.to_string())?;
     let files = syncer
         .get_conflict_files_content()
         .map_err(|e| e.to_string())?;
@@ -203,13 +199,19 @@ pub fn complete_conflict_merge(
     use crate::worker::ResolvedFileEntry;
     let entries: Vec<ResolvedFileEntry> = resolved
         .into_iter()
-        .map(|r| ResolvedFileEntry { path: r.path, content: r.content })
+        .map(|r| ResolvedFileEntry {
+            path: r.path,
+            content: r.content,
+        })
         .collect();
     state
         .lock()
         .unwrap()
         .worker_tx
-        .send(BgCmd::CompleteMerge { index, resolved: entries })
+        .send(BgCmd::CompleteMerge {
+            index,
+            resolved: entries,
+        })
         .map_err(|e| e.to_string())
 }
 

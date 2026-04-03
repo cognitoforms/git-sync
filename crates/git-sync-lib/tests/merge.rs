@@ -59,11 +59,7 @@ fn current_branch(dir: &Path) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-fn make_syncer(
-    repo_path: &Path,
-    branch_name: &str,
-    target_branch: &str,
-) -> RepositorySynchronizer {
+fn make_syncer(repo_path: &Path, branch_name: &str, target_branch: &str) -> RepositorySynchronizer {
     RepositorySynchronizer::new_with_transport(
         repo_path,
         SyncConfig {
@@ -231,7 +227,12 @@ fn direct_conflict_extracts_multiple_files() {
 
     let s = make_syncer(&local, "main", "main");
     let files = s.get_conflict_files_content().unwrap();
-    assert_eq!(files.len(), 2, "expected 2 conflicting files, got: {:?}", files.iter().map(|f| &f.path).collect::<Vec<_>>());
+    assert_eq!(
+        files.len(),
+        2,
+        "expected 2 conflicting files, got: {:?}",
+        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -265,7 +266,10 @@ fn direct_resolve_keep_mine() {
     s.resolve_keep_mine().unwrap();
 
     assert_eq!(read_file(&local, "file.txt"), OURS_CONTENT);
-    assert!(head_is_clean(&local), "working tree should be clean after resolve");
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after resolve"
+    );
 }
 
 #[test]
@@ -278,7 +282,10 @@ fn direct_resolve_accept_remote() {
     s.resolve_accept_remote().unwrap();
 
     assert_eq!(read_file(&local, "file.txt"), THEIRS_CONTENT);
-    assert!(head_is_clean(&local), "working tree should be clean after resolve");
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after resolve"
+    );
 }
 
 #[test]
@@ -294,7 +301,10 @@ fn direct_complete_merge_with_ours_content() {
     .unwrap();
 
     assert_eq!(read_file(&local, "file.txt"), OURS_CONTENT);
-    assert!(head_is_clean(&local), "working tree should be clean after merge");
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after merge"
+    );
 }
 
 #[test]
@@ -310,7 +320,10 @@ fn direct_complete_merge_with_custom_content() {
     .unwrap();
 
     assert_eq!(read_file(&local, "file.txt"), "custom\n");
-    assert!(head_is_clean(&local), "working tree should be clean after merge");
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after merge"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +344,10 @@ fn fallback_complete_merge_lands_on_target() {
 
     assert_eq!(current_branch(&local), "main");
     assert_eq!(read_file(&local, "file.txt"), "merged\n");
-    assert!(head_is_clean(&local), "working tree should be clean after merge");
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after merge"
+    );
 }
 
 #[test]
@@ -355,7 +371,8 @@ fn fallback_complete_merge_creates_merge_commit() {
     let parents = String::from_utf8_lossy(&out.stdout);
     let parent_count = parents.split_whitespace().count();
     assert_eq!(
-        parent_count, 2,
+        parent_count,
+        2,
         "HEAD should be a merge commit with 2 parents, got parents: {:?}",
         parents.trim()
     );

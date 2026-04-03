@@ -9,35 +9,15 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	getConfig: () => __TAURI_INVOKE<DesktopConfig>("get_config"),
 	getStatus: () => __TAURI_INVOKE<AppStatus>("get_status"),
-	setConfig: (config: DesktopConfig) =>
-		typedError<null, string>(__TAURI_INVOKE("set_config", { config })),
-	syncNow: (index: number) =>
-		typedError<null, string>(__TAURI_INVOKE("sync_now", { index })),
-	validateRepoPath: (path: string) =>
-		__TAURI_INVOKE<boolean>("validate_repo_path", { path }),
-	pickFolder: () =>
-		typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
-	getLogHistory: (repo: string | null) =>
-		__TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
-	getConflictInfo: (index: number) =>
-		typedError<ConflictInfoPayload, string>(
-			__TAURI_INVOKE("get_conflict_info", { index }),
-		),
-	resolveConflict: (
-		index: number,
-		strategy: ConflictResolutionStrategyPayload,
-	) =>
-		typedError<null, string>(
-			__TAURI_INVOKE("resolve_conflict", { index, strategy }),
-		),
-	getConflictFilesContent: (index: number) =>
-		typedError<ConflictFileContentPayload[], string>(
-			__TAURI_INVOKE("get_conflict_files_content", { index }),
-		),
-	completeConflictMerge: (index: number, resolved: ResolvedFilePayload[]) =>
-		typedError<null, string>(
-			__TAURI_INVOKE("complete_conflict_merge", { index, resolved }),
-		),
+	setConfig: (config: DesktopConfig) => typedError<null, string>(__TAURI_INVOKE("set_config", { config })),
+	syncNow: (index: number) => typedError<null, string>(__TAURI_INVOKE("sync_now", { index })),
+	validateRepoPath: (path: string) => __TAURI_INVOKE<boolean>("validate_repo_path", { path }),
+	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
+	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
+	getConflictInfo: (index: number) => typedError<ConflictInfoPayload, string>(__TAURI_INVOKE("get_conflict_info", { index })),
+	resolveConflict: (index: number, strategy: ConflictResolutionStrategyPayload) => typedError<null, string>(__TAURI_INVOKE("resolve_conflict", { index, strategy })),
+	getConflictFilesContent: (index: number) => typedError<ConflictFileContentPayload[], string>(__TAURI_INVOKE("get_conflict_files_content", { index })),
+	completeConflictMerge: (index: number, resolved: ResolvedFilePayload[]) => typedError<null, string>(__TAURI_INVOKE("complete_conflict_merge", { index, resolved })),
 };
 
 /** Events */
@@ -48,128 +28,106 @@ export const events = {
 
 /* Types */
 export type AppStatus = {
-	repos: RepoStatus[];
+	repos: RepoStatus[],
 };
 
 export type ConflictFileContentPayload = {
-	path: string;
-	ours: string;
-	theirs: string;
-	base: string;
+	path: string,
+	ours: string,
+	theirs: string,
+	base: string,
 };
 
 export type ConflictInfoPayload = {
-	conflicted_files: string[];
-	on_conflict_branch: boolean;
-	conflict_branch_name: string | null;
-	target_branch: string;
+	conflicted_files: string[],
+	on_conflict_branch: boolean,
+	conflict_branch_name: string | null,
+	target_branch: string,
 };
 
-export type ConflictResolutionStrategyPayload =
-	| "keep_mine"
-	| "accept_remote"
-	| "abandon_conflict_branch";
+export type ConflictResolutionStrategyPayload = "keep_mine" | "accept_remote" | "abandon_conflict_branch";
 
 export type DesktopConfig = {
-	global?: GlobalSettings;
-	repositories: RepoConfig[];
+	global?: GlobalSettings,
+	repositories: RepoConfig[],
 };
 
 export type FrontendLogEntry = {
-	timestamp: string;
-	level: string;
-	message: string;
-	repo: string | null;
+	timestamp: string,
+	level: string,
+	message: string,
+	repo: string | null,
 };
 
 export type GlobalSettings = {
-	remote?: string;
-	interval_secs?: number;
-	commit_message?: string;
-	sync_new_files?: boolean;
-	skip_hooks?: boolean;
-	conflict_branch?: boolean;
-	sync_on_start?: boolean;
-	debounce_ms?: number;
+	remote?: string,
+	interval_secs?: number,
+	commit_message?: string,
+	sync_new_files?: boolean,
+	skip_hooks?: boolean,
+	conflict_branch?: boolean,
+	sync_on_start?: boolean,
+	debounce_ms?: number,
 };
 
 export type LogEntryEvent = FrontendLogEntry;
 
 export type RepoConfig = {
-	name?: string;
-	repo_path?: string;
-	remote?: string;
-	branch?: string;
-	interval_secs?: number;
-	sync_new_files?: boolean;
-	skip_hooks?: boolean;
-	conflict_branch?: boolean;
-	commit_message?: string;
-	sync_on_start?: boolean;
-	debounce_ms?: number;
+	name?: string,
+	repo_path?: string,
+	remote?: string,
+	branch?: string,
+	interval_secs?: number,
+	sync_new_files?: boolean,
+	skip_hooks?: boolean,
+	conflict_branch?: boolean,
+	commit_message?: string,
+	sync_on_start?: boolean,
+	debounce_ms?: number,
 };
 
 export type RepoStatus = {
-	repo_path: string;
-	sync_state_label: string;
-	sync_state_id: string;
-	repo_state_label: string;
-	is_syncing: boolean;
-	error: SyncErrorPayload | null;
-	last_sync_time: string | null;
+	repo_path: string,
+	sync_state_label: string,
+	sync_state_id: string,
+	repo_state_label: string,
+	is_syncing: boolean,
+	error: SyncErrorPayload | null,
+	last_sync_time: string | null,
 };
 
 export type ResolvedFilePayload = {
-	path: string;
-	content: string;
+	path: string,
+	content: string,
 };
 
 export type StatusUpdateEvent = AppStatus;
 
-export type SyncErrorPayload =
-	| { category: "auth"; message: string }
-	| { category: "network"; message: string }
-	| { category: "conflict"; message: string }
-	| { category: "conflict_branch"; branch: string; message: string }
-	| { category: "config"; message: string }
-	| { category: "state"; message: string }
-	| { category: "unknown"; message: string };
+export type SyncErrorPayload = { category: "auth"; message: string } | { category: "network"; message: string } | { category: "conflict"; message: string } | { category: "conflict_branch"; branch: string; message: string } | { category: "config"; message: string } | { category: "state"; message: string } | { category: "unknown"; message: string };
 
 /* Tauri Specta runtime */
-async function typedError<T, E>(
-	result: Promise<T>,
-): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
-	try {
-		return { status: "ok", data: await result };
-	} catch (e) {
-		if (e instanceof Error) throw e;
-		return { status: "error", error: e as any };
-	}
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
 }
 
 function makeEvent<T>(name: string) {
-	const base = {
-		listen: (cb: __TAURI_EVENT.EventCallback<T>) =>
-			__TAURI_EVENT.listen(name, cb),
-		once: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.once(name, cb),
-		emit: ((payload: T) =>
-			__TAURI_EVENT.emit(name, payload) as unknown) as T extends null
-			? () => Promise<void>
-			: (payload: T) => Promise<void>,
-	};
+    const base = {
+        listen: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.listen(name, cb),
+        once: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.once(name, cb),
+        emit: ((payload: T) => __TAURI_EVENT.emit(name, payload) as unknown) as (T extends null ? () => Promise<void> : (payload: T) => Promise<void>)
+    };
 
-	const fn = (
-		target:
-			| import("@tauri-apps/api/webview").Webview
-			| import("@tauri-apps/api/window").Window,
-	) => ({
-		listen: (cb: __TAURI_EVENT.EventCallback<T>) => target.listen(name, cb),
-		once: (cb: __TAURI_EVENT.EventCallback<T>) => target.once(name, cb),
-		emit: ((payload: T) =>
-			target.emit(name, payload) as unknown) as T extends null
-			? () => Promise<void>
-			: (payload: T) => Promise<void>,
-	});
+    const fn = (target: import("@tauri-apps/api/webview").Webview | import("@tauri-apps/api/window").Window) => ({
+        listen: (cb: __TAURI_EVENT.EventCallback<T>) => target.listen(name, cb),
+        once: (cb: __TAURI_EVENT.EventCallback<T>) => target.once(name, cb),
+        emit: ((payload: T) => target.emit(name, payload) as unknown) as (T extends null ? () => Promise<void> : (payload: T) => Promise<void>)
+    });
 
-	return Object.assign(fn, base);
+    return Object.assign(fn, base);
 }
+
