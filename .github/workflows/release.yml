@@ -90,6 +90,13 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
 
+      # openssl-sys uses pkg-config which doesn't support cross-compilation.
+      # Vendored mode compiles OpenSSL from source using Clang, which handles
+      # both architectures natively on macOS.
+      - name: Use vendored OpenSSL for macOS cross-compilation
+        if: matrix.platform == 'macos-latest'
+        run: echo "OPENSSL_VENDORED=1" >> $GITHUB_ENV
+
       # ── Frontend deps ─────────────────────────────────────────────────────────
       - name: Install frontend dependencies
         working-directory: crates/git-sync-desktop
