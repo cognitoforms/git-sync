@@ -94,3 +94,9 @@ src/         React + TypeScript frontend (Vite)
 crates/
   git-sync-lib/   Core sync library (fork of git-sync-rs)
 ```
+
+---
+
+## License
+
+[MIT](LICENSE)

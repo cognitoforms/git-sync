@@ -2,6 +2,7 @@
 name = "git-sync-tauri"
 version = "0.2.1"
 description = "Git Sync desktop app (Tauri)"
+license = "MIT"
 edition = "2021"
 
 [lib]
