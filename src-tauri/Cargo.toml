@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-git-sync-lib    = { path = "../../git-sync-lib" }
+git-sync-lib    = { path = "../crates/git-sync-lib" }
 
 tauri                 = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog   = "2"

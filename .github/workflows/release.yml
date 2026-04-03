@@ -16,9 +16,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs['crates/git-sync-desktop/src-tauri--release_created'] }}
-      tag_name: ${{ steps.release.outputs['crates/git-sync-desktop/src-tauri--tag_name'] }}
-      release_body: ${{ steps.release.outputs['crates/git-sync-desktop/src-tauri--body'] }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_body: ${{ steps.release.outputs.body }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -80,7 +80,7 @@ jobs:
         with:
           node-version: lts/*
           cache: pnpm
-          cache-dependency-path: crates/git-sync-desktop/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       # ── Rust ─────────────────────────────────────────────────────────────────
       - uses: dtolnay/rust-toolchain@stable
@@ -99,7 +99,6 @@ jobs:
 
       # ── Frontend deps ─────────────────────────────────────────────────────────
       - name: Install frontend dependencies
-        working-directory: crates/git-sync-desktop
         run: pnpm install --frozen-lockfile
 
       # ── Build & upload to release ─────────────────────────────────────────────
@@ -122,6 +121,4 @@ jobs:
           # Becomes the `notes` field in latest.json shown to the user when an
           # update is available.
           releaseBody: ${{ needs.release-please.outputs.release_body }}
-          # The app is not at the repository root.
-          projectPath: crates/git-sync-desktop
           args: ${{ matrix.args }}

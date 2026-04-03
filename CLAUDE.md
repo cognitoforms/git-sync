@@ -10,13 +10,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo check -p git-sync-tauri
 
 # Full dev (starts Vite + Tauri together)
-cd crates/git-sync-desktop && pnpm tauri dev
+pnpm tauri dev
 
 # Production build
-cd crates/git-sync-desktop && pnpm tauri build
+pnpm tauri build
 
 # Frontend typecheck
-cd crates/git-sync-desktop && pnpm exec tsc --noEmit
+pnpm exec tsc --noEmit
 ```
 
 ### Workspace
@@ -36,7 +36,7 @@ cargo test -p git-sync-tauri export_bindings
 
 Two crates:
 - `crates/git-sync-lib` — vendored fork of git-sync-rs; all git sync logic (`WatchManager`, `RepositorySynchronizer`, `SyncState`, `RepositoryState`)
-- `crates/git-sync-desktop/src-tauri` — desktop app using Tauri v2 + React frontend (crate name: `git-sync-tauri`)
+- `src-tauri` — desktop app using Tauri v2 + React frontend (crate name: `git-sync-tauri`)
 
 Config file: `~/.config/Cognito Forms/Git Sync/desktop.toml`.
 
@@ -47,7 +47,7 @@ Config file: `~/.config/Cognito Forms/Git Sync/desktop.toml`.
 ### Structure
 
 ```
-crates/git-sync-desktop/
+<repo root>/
 ├── src-tauri/          ← Rust backend (workspace crate: git-sync-tauri)
 │   ├── src/
 │   │   ├── lib.rs          ← Tauri setup, tray, worker spawn, status forwarder
@@ -82,6 +82,8 @@ crates/git-sync-desktop/
 │   └── components/ui/
 │       └── button.tsx, checkbox.tsx, field.tsx, input.tsx, label.tsx, separator.tsx, sonner.tsx
 └── package.json
+└── crates/
+    └── git-sync-lib/   ← Core sync library
 ```
 
 ### Rust backend IPC
