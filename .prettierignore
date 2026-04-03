@@ -1,3 +1,7 @@
 pnpm-lock.yaml
-src/bindings.ts
 
+# Generated Files
+/src/bindings.ts
+/src-tauri/gen
+CHANGELOG.md
+/.release-please-manifest.json

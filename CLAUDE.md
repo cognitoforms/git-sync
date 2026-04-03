@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 
 ### git-sync-desktop (Tauri + React)
+
 ```bash
 # Rust backend only
 cargo check -p git-sync-tauri
@@ -20,6 +21,7 @@ pnpm exec tsc --noEmit
 ```
 
 ### Workspace
+
 ```bash
 # Tests (minimal coverage — only git-sync-lib has a placeholder test)
 cargo test
@@ -35,6 +37,7 @@ cargo test -p git-sync-tauri export_bindings
 ### Workspace
 
 Two crates:
+
 - `crates/git-sync-lib` — vendored fork of git-sync-rs; all git sync logic (`WatchManager`, `RepositorySynchronizer`, `SyncState`, `RepositoryState`)
 - `src-tauri` — desktop app using Tauri v2 + React frontend (crate name: `git-sync-tauri`)
 
@@ -92,43 +95,45 @@ IPC is typed end-to-end via **tauri-specta** (v2.0.0-rc.24). Rust types and comm
 
 **Tauri commands** (called from frontend via `commands.*` in `bindings.ts`):
 
-| Command | Description |
-|---|---|
-| `get_config` | Returns full `DesktopConfig` |
-| `get_status` | Returns current `AppStatus` snapshot |
-| `set_config(config)` | Saves config to TOML + sends `Reconfigure` to worker |
-| `sync_now(index)` | Sends `SyncNow(index)` to worker |
-| `validate_repo_path(path)` | Returns true if path contains a `.git` directory |
-| `pick_folder` | Opens native folder picker (tauri-plugin-dialog) |
-| `get_log_history(repo)` | Returns buffered log entries, optionally filtered by repo path |
+| Command                    | Description                                                    |
+| -------------------------- | -------------------------------------------------------------- |
+| `get_config`               | Returns full `DesktopConfig`                                   |
+| `get_status`               | Returns current `AppStatus` snapshot                           |
+| `set_config(config)`       | Saves config to TOML + sends `Reconfigure` to worker           |
+| `sync_now(index)`          | Sends `SyncNow(index)` to worker                               |
+| `validate_repo_path(path)` | Returns true if path contains a `.git` directory               |
+| `pick_folder`              | Opens native folder picker (tauri-plugin-dialog)               |
+| `get_log_history(repo)`    | Returns buffered log entries, optionally filtered by repo path |
 
 `Result<T, E>` commands return a tagged union `{ status: "ok"; data: T } | { status: "error"; error: E }` — check `.status` before using `.data`.
 
 **Tauri events** (emitted from Rust, listened via `events.*` in `bindings.ts`):
 
-| Event | Payload | Description |
-|---|---|---|
-| `StatusUpdateEvent` | `AppStatus` | Pushed on every worker status change |
-| `LogEntryEvent` | `FrontendLogEntry` | Pushed for each log line forwarded to the frontend |
+| Event               | Payload            | Description                                        |
+| ------------------- | ------------------ | -------------------------------------------------- |
+| `StatusUpdateEvent` | `AppStatus`        | Pushed on every worker status change               |
+| `LogEntryEvent`     | `FrontendLogEntry` | Pushed for each log line forwarded to the frontend |
 
 **Adding new IPC:**
+
 1. Add `specta::Type` to any new Rust struct/enum
 2. Add `#[tauri::command]` + `#[specta::specta]` to the function, register it in the `collect_commands!` macro in `lib.rs`
 3. Run `cargo test -p git-sync-tauri export_bindings` to regenerate `bindings.ts`
 
 ### Threading model
 
-| Thread | Role |
-|---|---|
-| Main (Tauri) | Tauri event loop; manages state, tray, window events |
-| Background (std + tokio) | `run_background()` in `worker.rs`; single-threaded tokio + `LocalSet` |
-| Async (Tauri runtime) | Status forwarder: watches `watch::Receiver` and emits `StatusUpdateEvent`; log forwarder emits `LogEntryEvent` |
+| Thread                   | Role                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Main (Tauri)             | Tauri event loop; manages state, tray, window events                                                           |
+| Background (std + tokio) | `run_background()` in `worker.rs`; single-threaded tokio + `LocalSet`                                          |
+| Async (Tauri runtime)    | Status forwarder: watches `watch::Receiver` and emits `StatusUpdateEvent`; log forwarder emits `LogEntryEvent` |
 
 Worker pattern: one task per repo, auto-respawns after 2 s on error.
 
 ### Custom title bar
 
 Window has `decorations: false`. The React `TitleBar` component provides:
+
 - `data-tauri-drag-region` on the content div (requires `core:window:allow-start-dragging` capability)
 - Theme toggle (Sun/Moon) — cycles light ↔ dark, persists to `localStorage`
 - Window controls (Minus/Square/X) via `@tauri-apps/api/window`
@@ -137,6 +142,7 @@ Window has `decorations: false`. The React `TitleBar` component provides:
 ### Dark mode
 
 `ThemeProvider` in `src/components/ThemeProvider.tsx`:
+
 - Reads/writes `"git-sync-theme"` key in `localStorage`
 - Defaults to system preference (`prefers-color-scheme`)
 - Applies/removes `.dark` class on `document.documentElement`
@@ -157,10 +163,10 @@ Window has `decorations: false`. The React `TitleBar` component provides:
 
 ### Plugins required
 
-| Plugin | Purpose |
-|---|---|
-| `tauri-plugin-dialog` | Native folder picker |
-| `tauri-plugin-os` | OS detection (platform info) |
+| Plugin                | Purpose                      |
+| --------------------- | ---------------------------- |
+| `tauri-plugin-dialog` | Native folder picker         |
+| `tauri-plugin-os`     | OS detection (platform info) |
 
 ### Capabilities (`capabilities/default.json`)
 
