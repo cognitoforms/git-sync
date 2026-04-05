@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "git-sync-tauri"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
