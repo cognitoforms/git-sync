@@ -169,7 +169,8 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let mut rx = status_rx_forwarder;
             tauri::async_runtime::spawn(async move {
-                let mut prev_error_keys: Vec<Option<String>> = Vec::new();
+                let mut prev_error_keys: Vec<Option<String>> =
+                    vec![None; rx.borrow().repos.len()];
                 loop {
                     if rx.changed().await.is_err() {
                         break;
@@ -281,7 +282,7 @@ fn error_key(error: &Option<SyncErrorPayload>) -> Option<String> {
         SyncErrorPayload::Auth { .. } => "auth".to_string(),
         SyncErrorPayload::Network { .. } => "network".to_string(),
         SyncErrorPayload::Conflict { .. } => "conflict".to_string(),
-        SyncErrorPayload::ConflictBranch { branch, .. } => format!("conflict_branch:{}", branch),
+        SyncErrorPayload::ConflictBranch { .. } => "conflict_branch".to_string(),
         SyncErrorPayload::Config { .. } => "config".to_string(),
         SyncErrorPayload::State { .. } => "state".to_string(),
         SyncErrorPayload::Unknown { .. } => "unknown".to_string(),
@@ -293,7 +294,7 @@ fn notification_text(repo_path: &str, error: &SyncErrorPayload) -> (String, Stri
     let repo_name = std::path::Path::new(repo_path)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or(repo_path)
+        .unwrap_or("Unknown repository")
         .to_string();
 
     match error {
