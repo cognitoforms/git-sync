@@ -22,7 +22,11 @@ export default function MergeEditor({ className, ...props }: Props) {
 	// always set colors on first render
 	// workaround for https://github.com/BearToCode/mismerge/issues/25
 	useEffect(() => {
+		let timeoutId: ReturnType<typeof setTimeout> | null = null;
+		let isMounted = true;
+
 		const forceSetColors = () => {
+			if (!isMounted) return;
 			const misMergeEl = wrapperRef.current?.firstElementChild as
 				| MisMerge3Instance
 				| undefined;
@@ -30,10 +34,15 @@ export default function MergeEditor({ className, ...props }: Props) {
 			if (misMergeEl) {
 				misMergeEl.colors = { ...colors };
 			} else {
-				setTimeout(forceSetColors, 0);
+				timeoutId = setTimeout(forceSetColors, 0);
 			}
 		};
 		forceSetColors();
+
+		return () => {
+			isMounted = false;
+			if (timeoutId !== null) clearTimeout(timeoutId);
+		};
 	}, [colors]);
 
 	return (

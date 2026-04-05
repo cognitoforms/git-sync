@@ -1144,17 +1144,36 @@ impl RepositorySynchronizer {
         Ok(())
     }
 
+    /// Validate that a path from the frontend is relative and does not escape
+    /// the repository root via path traversal (e.g. `../`, absolute paths).
+    fn validate_resolved_path(repo_path: &Path, relative: &str) -> Result<PathBuf> {
+        let rel = Path::new(relative);
+        if rel.is_absolute() {
+            return Err(SyncError::Other(format!(
+                "Resolved file path must be relative: {}",
+                relative
+            )));
+        }
+        for component in rel.components() {
+            if component == std::path::Component::ParentDir {
+                return Err(SyncError::Other(format!(
+                    "Path traversal detected in resolved file path: {}",
+                    relative
+                )));
+            }
+        }
+        Ok(repo_path.join(rel))
+    }
+
     fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
         for file in &resolved {
-            let full_path = self._repo_path.join(&file.path);
+            let full_path =
+                Self::validate_resolved_path(&self._repo_path, &file.path)?;
             if let Some(parent) = full_path.parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&full_path, &file.content)?;
         }
-        let mut index = self.repo.index()?;
-        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
-        index.write()?;
         self.auto_commit()
     }
 
@@ -1194,11 +1213,8 @@ impl RepositorySynchronizer {
             .merge(&[&remote_annotated], Some(&mut merge_opts), Some(&mut co))
             .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
 
-        // Stage the merge result and commit (MERGE_HEAD makes it a merge commit).
-        let mut index = self.repo.index()?;
-        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
-        index.write()?;
-
+        // Commit the merge result (MERGE_HEAD makes it a merge commit), using the
+        // same safe staging logic as `auto_commit`.
         self.auto_commit()?;
         self.repo.cleanup_state()?;
 
