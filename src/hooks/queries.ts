@@ -1,6 +1,11 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { commands, events } from "../bindings";
+import type {
+	ConflictResolutionStrategyPayload,
+	ResolvedFilePayload,
+} from "../bindings";
 import type {
 	DesktopConfig,
 	GlobalSettings,
@@ -108,5 +113,85 @@ export function useSyncNow() {
 			const result = await commands.syncNow(index);
 			if (result.status === "error") throw new Error(result.error);
 		},
+	});
+}
+
+export function useConflictInfo(repoIdx: number, enabled: boolean) {
+	return useQuery({
+		queryKey: ["conflict-info", repoIdx],
+		queryFn: async () => {
+			const result = await commands.getConflictInfo(repoIdx);
+			if (result.status === "error") throw new Error(result.error);
+			return result.data;
+		},
+		enabled,
+		// Re-fetch every 5 s while a conflict panel is open.
+		refetchInterval: enabled ? 5000 : false,
+	});
+}
+
+export function useResolveConflict() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async ({
+			index,
+			strategy,
+		}: {
+			index: number;
+			strategy: ConflictResolutionStrategyPayload;
+		}) => {
+			const result = await commands.resolveConflict(index, strategy);
+			if (result.status === "error") throw new Error(result.error);
+		},
+		onSuccess: (_, { index }) => {
+			queryClient.invalidateQueries({ queryKey: ["conflict-info", index] });
+		},
+	});
+}
+
+export function useConflictFilesContent(repoIdx: number, enabled: boolean) {
+	return useQuery({
+		queryKey: ["conflict-files-content", repoIdx],
+		queryFn: async () => {
+			const result = await commands.getConflictFilesContent(repoIdx);
+			if (result.status === "error") throw new Error(result.error);
+			return result.data;
+		},
+		enabled,
+	});
+}
+
+export function useCompleteMerge() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async ({
+			index,
+			resolved,
+		}: {
+			index: number;
+			resolved: ResolvedFilePayload[];
+		}) => {
+			const result = await commands.completeConflictMerge(index, resolved);
+			if (result.status === "error") throw new Error(result.error);
+		},
+		onSuccess: (_, { index }) => {
+			queryClient.invalidateQueries({ queryKey: ["conflict-info", index] });
+			queryClient.invalidateQueries({
+				queryKey: ["conflict-files-content", index],
+			});
+		},
+	});
+}
+
+export function useRevealInFinder() {
+	return useMutation({
+		mutationFn: (path: string) => revealItemInDir(path),
+	});
+}
+
+export function useOpenVSCode() {
+	return useMutation({
+		mutationFn: async (path: string) =>
+			await openPath(path, "Visual Studio Code"),
 	});
 }
