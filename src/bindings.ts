@@ -14,6 +14,10 @@ export const commands = {
 	validateRepoPath: (path: string) => __TAURI_INVOKE<boolean>("validate_repo_path", { path }),
 	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
+  openDiffViewer: (repoPath: string, repoName: string) => typedError<null, string>(__TAURI_INVOKE("open_diff_viewer", { repoPath, repoName })),
+	getDiffViewerContext: (windowLabel: string) => __TAURI_INVOKE<DiffViewerContext | null>("get_diff_viewer_context", { windowLabel }),
+  listDiffCommits: (repoPath: string, limit: number | null) => typedError<DiffCommitSummary[], string>(__TAURI_INVOKE("list_diff_commits", { repoPath, limit })),
+	getDiffView: (repoPath: string, mode: DiffCompareMode, selectedFile: string | null) => typedError<DiffViewData, string>(__TAURI_INVOKE("get_diff_view", { repoPath, mode, selectedFile })),
 };
 
 /** Events */
@@ -30,6 +34,41 @@ export type AppStatus = {
 export type DesktopConfig = {
 	global?: GlobalSettings,
 	repositories: RepoConfig[],
+};
+
+export type DiffCommitSummary = {
+	sha: string,
+	short_sha: string,
+	author_name: string,
+	timestamp: string,
+};
+
+export type DiffCompareMode = { kind: "latest_commit" } | { kind: "latest_author" } | { kind: "compare_commits"; from_sha: string; to_sha: string };
+
+export type DiffFileEntry = {
+	path: string,
+	status: string,
+};
+
+export type DiffViewerContext = {
+	repo_path: string,
+	repo_name: string,
+};
+
+export type DiffRangeInfo = {
+	from_sha: string | null,
+	from_label: string,
+	to_sha: string,
+	to_label: string,
+	author_name: string,
+	timestamp: string,
+};
+
+export type DiffViewData = {
+	range: DiffRangeInfo,
+	files: DiffFileEntry[],
+	selected_file: string | null,
+	diff_text: string,
 };
 
 export type FrontendLogEntry = {

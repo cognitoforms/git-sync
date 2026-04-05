@@ -18,6 +18,7 @@ interface Props {
 	aggStatusLabel?: string;
 	onBack?: () => void;
 	className?: string;
+   showStatusDot?: boolean;
 }
 
 export default function TitleBar({
@@ -27,6 +28,7 @@ export default function TitleBar({
 	aggStatusLabel,
 	onBack,
 	className,
+ showStatusDot = true,
 }: Props) {
 	const { resolvedTheme, setTheme } = useTheme();
 	const isFullscreen = useIsFullscreen();
@@ -55,11 +57,13 @@ export default function TitleBar({
 					>
 						<ArrowLeft weight="bold" />
 					</Button>
-				) : (
+               ) : showStatusDot ? (
 					<StatusDot
 						id={aggStatusId ?? "unknown"}
 						className="mr-2.5 ml-2 shrink-0"
 					/>
+              ) : (
+					<div className="w-2 shrink-0" />
 				)}
 				<div
 					className="flex min-w-0 items-baseline gap-2 overflow-hidden"

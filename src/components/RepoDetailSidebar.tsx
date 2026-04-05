@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { ArrowsClockwise, GearSix, X } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatLastSync, commands, events } from "@/api";
 import type { FrontendLogEntry, RepoStatus } from "@/bindings";
@@ -42,20 +43,20 @@ export default function RepoDetailSidebar({
 		setLogs([]);
 		commands
 			.getLogHistory(config.repo_path)
-			.then((entries) => setLogs(entries.slice(-LOG_CAP)))
+            .then((entries: FrontendLogEntry[]) => setLogs(entries.slice(-LOG_CAP)))
 			.catch(console.error);
 	}, [config.repo_path]);
 
 	// Subscribe to live log entries.
 	useEffect(() => {
-		const p = events.logEntryEvent.listen((e) => {
+      const p = events.logEntryEvent.listen((e: { payload: FrontendLogEntry }) => {
 			const entry = e.payload;
 			if (entry.repo === config.repo_path) {
-				setLogs((prev) => [...prev, entry].slice(-LOG_CAP));
+                setLogs((prev: FrontendLogEntry[]) => [...prev, entry].slice(-LOG_CAP));
 			}
 		});
 		return () => {
-			p.then((f) => f());
+         p.then((f: () => void) => f());
 		};
 	}, [config.repo_path]);
 
@@ -65,6 +66,13 @@ export default function RepoDetailSidebar({
 
 	const name =
 		config.name || config.repo_path.split(/[\\/]/).pop() || config.repo_path;
+
+	const handleOpenDiffViewer = async () => {
+		const result = await commands.openDiffViewer(config.repo_path, name);
+		if (result.status === "error") {
+			toast.error("Failed to open diff viewer");
+		}
+	};
 
 	return (
 		<div className="bg-background border-border flex h-full w-full flex-col border-l [box-shadow:-4px_0_16px_rgb(0_0_0_/_0.08)]">
@@ -159,6 +167,16 @@ export default function RepoDetailSidebar({
 					<span className="w-14 shrink-0">Interval</span>
 					<span>{config.interval_secs}s</span>
 				</div>
+              <div className="pt-2">
+					<Button
+						variant="outline"
+						size="sm"
+						className="w-full"
+						onClick={handleOpenDiffViewer}
+					>
+						Open Diff Viewer
+					</Button>
+				</div>
 			</div>
 
 			{/* Log */}
@@ -168,7 +186,7 @@ export default function RepoDetailSidebar({
 						No log entries yet
 					</div>
 				) : (
-					logs.map((entry, i) => (
+                    logs.map((entry: FrontendLogEntry, i: number) => (
 						<div
 							key={i}
 							className="mb-0.5 flex gap-1.5 leading-relaxed whitespace-nowrap"

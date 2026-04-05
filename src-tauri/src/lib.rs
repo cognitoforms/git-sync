@@ -1,10 +1,11 @@
 mod commands;
 mod config;
+mod diff_view;
 mod log_layer;
 mod status;
 mod worker;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "macos")]
@@ -40,6 +41,10 @@ mod tests {
                 commands::validate_repo_path,
                 commands::pick_folder,
                 commands::get_log_history,
+                commands::open_diff_viewer,
+                commands::get_diff_viewer_context,
+                commands::list_diff_commits,
+                commands::get_diff_view,
             ])
             .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 
@@ -75,6 +80,16 @@ pub struct StatusState(watch::Receiver<AppStatus>);
 
 pub struct LogState {
     pub history: Arc<Mutex<VecDeque<FrontendLogEntry>>>,
+}
+
+#[derive(Clone, serde::Serialize, specta::Type)]
+pub struct DiffViewerContext {
+    pub repo_path: String,
+    pub repo_name: String,
+}
+
+pub struct DiffViewerState {
+    pub contexts: Arc<Mutex<HashMap<String, DiffViewerContext>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -115,6 +130,10 @@ pub fn run() {
             commands::validate_repo_path,
             commands::pick_folder,
             commands::get_log_history,
+            commands::open_diff_viewer,
+            commands::get_diff_viewer_context,
+            commands::list_diff_commits,
+            commands::get_diff_view,
         ])
         .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 
@@ -141,6 +160,9 @@ pub fn run() {
         .manage(Mutex::new(StatusState(status_rx)))
         .manage(LogState {
             history: log_history,
+        })
+        .manage(DiffViewerState {
+            contexts: Arc::new(Mutex::new(HashMap::new())),
         })
         .setup(move |app| {
             builder.mount_events(app);
@@ -237,9 +259,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().unwrap();
-                api.prevent_close();
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    window.hide().unwrap();
+                    api.prevent_close();
+                }
             }
         })
         .invoke_handler(invoke_handler)

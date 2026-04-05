@@ -17,6 +17,7 @@ vendored-openssl = ["git-sync-lib/vendored-openssl"]
 
 [dependencies]
 git-sync-lib    = { path = "../crates/git-sync-lib" }
+git2            = "0.18"
 
 tauri                 = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog   = "2"

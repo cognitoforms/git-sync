@@ -1302,6 +1302,7 @@ dependencies = [
  "chrono",
  "directories 6.0.0",
  "git-sync-lib",
+ "git2",
  "serde",
  "serde_json",
  "specta",
