@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MergeEditor from "./MergeEditor";
 import { useConflictFilesContent, useCompleteMerge } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
@@ -102,14 +102,18 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 
 	useEffect(() => {
 		if (!files || files.length === 0) return;
-		const firstPath = files[0].path;
-		setSelectedPath(firstPath);
+		setSelectedPath(files[0].path);
 	}, [files]);
 
 	const filePaths = files?.map((f) => f.path) ?? [];
 	const treeData = buildTreeItems(filePaths);
 	const currentFile = files?.find((f) => f.path === selectedPath);
-	const resolvedCount = Object.keys(resolvedMap).length;
+
+	const isFileResolved = (path: string) => !!resolvedMap[path];
+	const resolvedCount = useMemo(
+		() => filePaths.filter((p) => !!resolvedMap[p]).length,
+		[filePaths, resolvedMap],
+	);
 	const allResolved =
 		files != null && files.length > 0 && resolvedCount === files.length;
 
@@ -127,7 +131,7 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 		if (!files) return;
 		const resolved = files.map((f) => ({
 			path: f.path,
-			content: resolvedMap[f.path] ?? f.ours,
+			content: resolvedMap[f.path] ?? f.base,
 		}));
 		await completeMerge.mutateAsync({ index: repoIdx, resolved });
 		onClose();
@@ -196,7 +200,7 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 												<span
 													className={cn(
 														"inline-block size-1.5 shrink-0 rounded-full",
-														resolvedMap[item.id] != null
+														isFileResolved(item.id)
 															? "bg-green-500"
 															: "bg-amber-400",
 													)}
