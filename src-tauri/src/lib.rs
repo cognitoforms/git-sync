@@ -16,7 +16,7 @@ use tracing_subscriber::prelude::*;
 
 use config::{load_config, DesktopConfig};
 use log_layer::{FrontendLogEntry, TauriLogLayer};
-use status::AppStatus;
+use status::{AppStatus, SyncErrorPayload};
 use worker::BgCmd;
 
 // ── Bindings export (test-only utility) ───────────────────────────────────────
@@ -130,6 +130,7 @@ pub fn run() {
     let invoke_handler = builder.invoke_handler();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
@@ -163,15 +164,42 @@ pub fn run() {
 
             win_builder.build()?;
 
-            // Push status updates to the frontend whenever the worker sends a new snapshot.
+            // Push status updates to the frontend and send desktop notifications
+            // whenever a repository transitions into an error or conflict state.
             let app_handle = app.handle().clone();
             let mut rx = status_rx_forwarder;
             tauri::async_runtime::spawn(async move {
+                let mut prev_error_keys: Vec<Option<String>> =
+                    vec![None; rx.borrow().repos.len()];
                 loop {
                     if rx.changed().await.is_err() {
                         break;
                     }
                     let snapshot = rx.borrow_and_update().clone();
+
+                    // Reset tracking when the repo count changes (e.g. after reconfigure).
+                    if prev_error_keys.len() != snapshot.repos.len() {
+                        prev_error_keys = vec![None; snapshot.repos.len()];
+                    }
+
+                    for (i, repo) in snapshot.repos.iter().enumerate() {
+                        let key = error_key(&repo.error);
+                        if key.is_some() && key.as_deref() != prev_error_keys[i].as_deref() {
+                            if let Some(ref err) = repo.error {
+                                let (title, body) = notification_text(&repo.repo_path, err);
+                                use tauri_plugin_notification::NotificationExt;
+                                app_handle
+                                    .notification()
+                                    .builder()
+                                    .title(&title)
+                                    .body(&body)
+                                    .show()
+                                    .ok();
+                            }
+                        }
+                        prev_error_keys[i] = key;
+                    }
+
                     StatusUpdateEvent(snapshot).emit(&app_handle).ok();
                 }
             });
@@ -245,4 +273,58 @@ pub fn run() {
         .invoke_handler(invoke_handler)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Returns a short string key identifying the current error category, used to
+/// detect transitions into a new error state so we don't re-notify on every tick.
+fn error_key(error: &Option<SyncErrorPayload>) -> Option<String> {
+    error.as_ref().map(|e| match e {
+        SyncErrorPayload::Auth { .. } => "auth".to_string(),
+        SyncErrorPayload::Network { .. } => "network".to_string(),
+        SyncErrorPayload::Conflict { .. } => "conflict".to_string(),
+        SyncErrorPayload::ConflictBranch { .. } => "conflict_branch".to_string(),
+        SyncErrorPayload::Config { .. } => "config".to_string(),
+        SyncErrorPayload::State { .. } => "state".to_string(),
+        SyncErrorPayload::Unknown { .. } => "unknown".to_string(),
+    })
+}
+
+/// Builds the notification title and body for a repository error.
+fn notification_text(repo_path: &str, error: &SyncErrorPayload) -> (String, String) {
+    let repo_name = std::path::Path::new(repo_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Unknown repository")
+        .to_string();
+
+    match error {
+        SyncErrorPayload::Conflict { message } => (
+            format!("{}: Merge conflict", repo_name),
+            message.clone(),
+        ),
+        SyncErrorPayload::ConflictBranch { branch, message } => (
+            format!("{}: Conflicts saved to branch", repo_name),
+            format!("{} — {}", branch, message),
+        ),
+        SyncErrorPayload::Auth { message } => (
+            format!("{}: Authentication failed", repo_name),
+            message.clone(),
+        ),
+        SyncErrorPayload::Network { message } => (
+            format!("{}: Network error", repo_name),
+            message.clone(),
+        ),
+        SyncErrorPayload::Config { message } => (
+            format!("{}: Configuration error", repo_name),
+            message.clone(),
+        ),
+        SyncErrorPayload::State { message } => (
+            format!("{}: Repository needs attention", repo_name),
+            message.clone(),
+        ),
+        SyncErrorPayload::Unknown { message } => (
+            format!("{}: Sync error", repo_name),
+            message.clone(),
+        ),
+    }
 }
