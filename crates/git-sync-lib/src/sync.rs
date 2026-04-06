@@ -1167,8 +1167,7 @@ impl RepositorySynchronizer {
 
     fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
         for file in &resolved {
-            let full_path =
-                Self::validate_resolved_path(&self._repo_path, &file.path)?;
+            let full_path = Self::validate_resolved_path(&self._repo_path, &file.path)?;
             if let Some(parent) = full_path.parent() {
                 fs::create_dir_all(parent)?;
             }
