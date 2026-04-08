@@ -93,6 +93,7 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const dragStartWidth = useRef(0);
 
 	useEffect(() => {
+		if (!isOpen) return;
 		function handleMouseMove(e: MouseEvent) {
 			if (!isDragging.current) return;
 			const delta = e.clientX - dragStartX.current;
@@ -109,7 +110,7 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 			document.removeEventListener("mousemove", handleMouseMove);
 			document.removeEventListener("mouseup", handleMouseUp);
 		};
-	}, []);
+	}, [isOpen]);
 
 	useEffect(() => {
 		if (!files || files.length === 0) return;
