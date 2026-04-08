@@ -234,6 +234,8 @@ async fn run_resolve(
                     rs.error = Some(SyncErrorPayload::from(
                         &git_sync_lib::SyncErrorSummary::from(e),
                     ));
+                    rs.sync_state_label = "Resolve failed".to_string();
+                    rs.sync_state_id = "error".to_string();
                 }
             }
             true
@@ -285,6 +287,8 @@ async fn run_complete_merge(
                     rs.error = Some(SyncErrorPayload::from(
                         &git_sync_lib::SyncErrorSummary::from(e),
                     ));
+                    rs.sync_state_label = "Merge failed".to_string();
+                    rs.sync_state_id = "error".to_string();
                 }
             }
             true
