@@ -33,9 +33,10 @@ export type AppStatus = {
 
 export type ConflictFileContentPayload = {
 	path: string,
-	ours: string,
-	theirs: string,
-	base: string,
+	ours: string | null,
+	theirs: string | null,
+	base: string | null,
+	conflict_kind: ConflictKindPayload,
 };
 
 export type ConflictInfoPayload = {
@@ -44,6 +45,8 @@ export type ConflictInfoPayload = {
 	conflict_branch_name: string | null,
 	target_branch: string,
 };
+
+export type ConflictKindPayload = { type: "content_conflict" } | { type: "deleted_by_us" } | { type: "deleted_by_them" };
 
 export type ConflictResolutionStrategyPayload = "keep_mine" | "accept_remote" | "abandon_conflict_branch";
 
@@ -99,6 +102,7 @@ export type RepoStatus = {
 export type ResolvedFilePayload = {
 	path: string,
 	content: string,
+	deleted: boolean,
 };
 
 export type StatusUpdateEvent = AppStatus;

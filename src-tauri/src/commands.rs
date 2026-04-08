@@ -144,17 +144,37 @@ pub fn resolve_conflict(
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ConflictKindPayload {
+    ContentConflict,
+    DeletedByUs,
+    DeletedByThem,
+}
+
+impl From<git_sync_lib::ConflictKind> for ConflictKindPayload {
+    fn from(k: git_sync_lib::ConflictKind) -> Self {
+        match k {
+            git_sync_lib::ConflictKind::ContentConflict => Self::ContentConflict,
+            git_sync_lib::ConflictKind::DeletedByUs => Self::DeletedByUs,
+            git_sync_lib::ConflictKind::DeletedByThem => Self::DeletedByThem,
+        }
+    }
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
 pub struct ConflictFileContentPayload {
     pub path: String,
-    pub ours: String,
-    pub theirs: String,
-    pub base: String,
+    pub ours: Option<String>,
+    pub theirs: Option<String>,
+    pub base: Option<String>,
+    pub conflict_kind: ConflictKindPayload,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
 pub struct ResolvedFilePayload {
     pub path: String,
     pub content: String,
+    pub deleted: bool,
 }
 
 #[tauri::command]
@@ -185,6 +205,7 @@ pub fn get_conflict_files_content(
             ours: f.ours,
             theirs: f.theirs,
             base: f.base,
+            conflict_kind: f.conflict_kind.into(),
         })
         .collect())
 }
@@ -202,6 +223,7 @@ pub fn complete_conflict_merge(
         .map(|r| ResolvedFileEntry {
             path: r.path,
             content: r.content,
+            deleted: r.deleted,
         })
         .collect();
     state

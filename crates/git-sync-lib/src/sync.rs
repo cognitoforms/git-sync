@@ -110,13 +110,28 @@ pub enum UnhandledFileState {
     Conflicted { path: String },
 }
 
+/// The kind of conflict detected for a file.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictKind {
+    /// Both sides modified the file; standard 3-way merge.
+    ContentConflict,
+    /// Our side removed the file; their side has content.
+    DeletedByUs,
+    /// Their side removed the file; our side has content.
+    DeletedByThem,
+}
+
 /// 3-way file content for the merge editor.
 #[derive(Debug)]
 pub struct ConflictFileContent {
     pub path: String,
-    pub ours: String,
-    pub theirs: String,
-    pub base: String,
+    /// None when our side deleted the file.
+    pub ours: Option<String>,
+    /// None when their side deleted the file.
+    pub theirs: Option<String>,
+    /// None when there is no common ancestor blob.
+    pub base: Option<String>,
+    pub conflict_kind: ConflictKind,
 }
 
 /// A single file's resolved content, sent back from the frontend.
@@ -124,6 +139,8 @@ pub struct ConflictFileContent {
 pub struct ResolvedFileContent {
     pub path: String,
     pub content: String,
+    /// When true, delete the file instead of writing content.
+    pub deleted: bool,
 }
 
 /// State for tracking fallback branch return attempts (in-memory only)
@@ -1015,26 +1032,30 @@ impl RepositorySynchronizer {
                 .our
                 .as_ref()
                 .and_then(|e| self.repo.find_blob(e.id).ok())
-                .map(|b| String::from_utf8_lossy(b.content()).into_owned())
-                .unwrap_or_default();
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned());
             let theirs = conflict
                 .their
                 .as_ref()
                 .and_then(|e| self.repo.find_blob(e.id).ok())
-                .map(|b| String::from_utf8_lossy(b.content()).into_owned())
-                .unwrap_or_default();
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned());
             let base = conflict
                 .ancestor
                 .as_ref()
                 .and_then(|e| self.repo.find_blob(e.id).ok())
-                .map(|b| String::from_utf8_lossy(b.content()).into_owned())
-                .unwrap_or_default();
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned());
+
+            let conflict_kind = match (&ours, &theirs) {
+                (None, _) => ConflictKind::DeletedByUs,
+                (_, None) => ConflictKind::DeletedByThem,
+                _ => ConflictKind::ContentConflict,
+            };
 
             result.push(ConflictFileContent {
                 path,
                 ours,
                 theirs,
                 base,
+                conflict_kind,
             });
         }
         Ok(result)
@@ -1168,10 +1189,16 @@ impl RepositorySynchronizer {
     fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
         for file in &resolved {
             let full_path = Self::validate_resolved_path(&self._repo_path, &file.path)?;
-            if let Some(parent) = full_path.parent() {
-                fs::create_dir_all(parent)?;
+            if file.deleted {
+                if full_path.exists() {
+                    fs::remove_file(&full_path)?;
+                }
+            } else {
+                if let Some(parent) = full_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&full_path, &file.content)?;
             }
-            fs::write(&full_path, &file.content)?;
         }
         self.auto_commit()
     }

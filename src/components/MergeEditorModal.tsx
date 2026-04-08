@@ -67,6 +67,10 @@ function buildTreeItems(filePaths: string[]): TreeDataItem[] {
 	return nodeToItems(root, "");
 }
 
+// ── Resolution state ──────────────────────────────────────────────────────────
+
+type Resolution = { content: string; deleted: boolean };
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
@@ -74,7 +78,9 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const completeMerge = useCompleteMerge();
 
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
-	const [resolvedMap, setResolvedMap] = useState<Record<string, string>>({});
+	const [resolvedMap, setResolvedMap] = useState<Record<string, Resolution>>(
+		{},
+	);
 	const [sidebarWidth, setSidebarWidth] = useState(224);
 
 	const isDragging = useRef(false);
@@ -124,15 +130,29 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 
 	function handleCtrChange(content: string) {
 		if (!currentFile) return;
-		setResolvedMap((m) => ({ ...m, [currentFile.path]: content }));
+		setResolvedMap((m) => ({
+			...m,
+			[currentFile.path]: { content, deleted: false },
+		}));
+	}
+
+	function handleKeepFile(path: string, content: string) {
+		setResolvedMap((m) => ({ ...m, [path]: { content, deleted: false } }));
+	}
+
+	function handleDeleteFile(path: string) {
+		setResolvedMap((m) => ({ ...m, [path]: { content: "", deleted: true } }));
 	}
 
 	async function handleCompleteMerge() {
 		if (!files) return;
-		const resolved = files.map((f) => ({
-			path: f.path,
-			content: resolvedMap[f.path] ?? f.base,
-		}));
+		const resolved = files.map((f) => {
+			const res = resolvedMap[f.path];
+			if (!res) {
+				return { path: f.path, content: f.base ?? "", deleted: false };
+			}
+			return { path: f.path, content: res.content, deleted: res.deleted };
+		});
 		await completeMerge.mutateAsync({ index: repoIdx, resolved });
 		onClose();
 	}
@@ -142,6 +162,120 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 		dragStartX.current = e.clientX;
 		dragStartWidth.current = sidebarWidth;
 		e.preventDefault();
+	}
+
+	// ── Editor area ────────────────────────────────────────────────────────────
+
+	function renderEditorArea() {
+		if (!currentFile) {
+			return (
+				!isLoading && (
+					<div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+						No conflicting files found.
+					</div>
+				)
+			);
+		}
+
+		const kind = currentFile.conflict_kind.type;
+
+		if (kind === "deleted_by_us" || kind === "deleted_by_them") {
+			const isDeletedByUs = kind === "deleted_by_us";
+			const survivingContent = isDeletedByUs
+				? currentFile.theirs
+				: currentFile.ours;
+			const description = isDeletedByUs
+				? "This file was deleted locally but modified remotely."
+				: "This file was modified locally but deleted remotely.";
+			const keepLabel = isDeletedByUs ? "Keep Remote File" : "Keep Local File";
+
+			return (
+				<>
+					<div className="text-muted-foreground flex h-8 items-center px-3 font-mono text-xs">
+						{currentFile.path}
+					</div>
+					<Separator />
+					<div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
+						<div className="rounded-md border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+							{description}
+						</div>
+						{survivingContent != null && (
+							<div className="flex flex-1 flex-col gap-1 overflow-auto">
+								<div className="text-muted-foreground text-xs font-medium">
+									{isDeletedByUs ? "Remote content" : "Local content"}
+								</div>
+								<pre className="bg-muted flex-1 overflow-auto rounded-md p-3 font-mono text-xs">
+									{survivingContent}
+								</pre>
+							</div>
+						)}
+						<div className="flex shrink-0 gap-2">
+							<Button
+								size="sm"
+								variant={
+									resolvedMap[currentFile.path]?.deleted === false
+										? "default"
+										: "outline"
+								}
+								onClick={() =>
+									handleKeepFile(currentFile.path, survivingContent ?? "")
+								}
+							>
+								{keepLabel}
+							</Button>
+							<Button
+								size="sm"
+								variant={
+									resolvedMap[currentFile.path]?.deleted === true
+										? "default"
+										: "outline"
+								}
+								onClick={() => handleDeleteFile(currentFile.path)}
+							>
+								Delete File
+							</Button>
+						</div>
+					</div>
+				</>
+			);
+		}
+
+		// content_conflict — standard 3-pane merge editor
+		return (
+			<>
+				<div className="text-muted-foreground flex h-8 items-center px-3 font-mono text-xs">
+					{currentFile.path}
+				</div>
+
+				<Separator />
+
+				{/* Column labels */}
+				<div className="text-muted-foreground flex shrink-0 border-b text-xs">
+					<div className="flex-1 px-3 py-1 font-medium">Upstream changes</div>
+					<div className="w-10 shrink-0" />
+					<div className="flex-1 px-3 py-1 font-medium">
+						Resolved (editable)
+					</div>
+					<div className="w-10 shrink-0" />
+					<div className="flex-1 px-3 py-1 font-medium">My changes</div>
+				</div>
+				<div className="flex-1 overflow-auto">
+					<MergeEditor
+						lhs={currentFile.theirs ?? ""}
+						ctr={
+							resolvedMap[currentFile.path]?.content ?? currentFile.base ?? ""
+						}
+						rhs={currentFile.ours ?? ""}
+						onCtrChange={handleCtrChange}
+						lhsEditable={false}
+						rhsEditable={false}
+						ctrEditable={true}
+						wrapLines={true}
+						className="h-full!"
+					/>
+				</div>
+			</>
+		);
 	}
 
 	return (
@@ -222,47 +356,7 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 
 					{/* Editor */}
 					<div className="flex min-w-0 flex-1 flex-col">
-						{currentFile ? (
-							<>
-								<div className="text-muted-foreground flex h-8 items-center px-3 font-mono text-xs">
-									{currentFile.path}
-								</div>
-
-								<Separator />
-
-								{/* Column labels */}
-								<div className="text-muted-foreground flex shrink-0 border-b text-xs">
-									<div className="flex-1 px-3 py-1 font-medium">
-										Upstream changes
-									</div>
-									<div className="w-10 shrink-0" />
-									<div className="flex-1 px-3 py-1 font-medium">
-										Resolved (editable)
-									</div>
-									<div className="w-10 shrink-0" />
-									<div className="flex-1 px-3 py-1 font-medium">My changes</div>
-								</div>
-								<div className="flex-1 overflow-auto">
-									<MergeEditor
-										lhs={currentFile.theirs}
-										ctr={resolvedMap[currentFile.path] ?? currentFile.base}
-										rhs={currentFile.ours}
-										onCtrChange={handleCtrChange}
-										lhsEditable={false}
-										rhsEditable={false}
-										ctrEditable={true}
-										wrapLines={true}
-										className="h-full!"
-									/>
-								</div>
-							</>
-						) : (
-							!isLoading && (
-								<div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
-									No conflicting files found.
-								</div>
-							)
-						)}
+						{renderEditorArea()}
 					</div>
 				</div>
 
