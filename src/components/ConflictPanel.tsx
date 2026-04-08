@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { platform } from "@tauri-apps/plugin-os";
 import { FolderOpen, Code, Warning, GitBranch } from "@phosphor-icons/react";
 import {
 	useConflictInfo,
@@ -29,6 +30,13 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 	const resolveConflict = useResolveConflict();
 	const revealInFinder = useRevealInFinder();
 	const openVSCode = useOpenVSCode();
+	const p = platform();
+	const revealLabel =
+		p === "macos"
+			? "Reveal in Finder"
+			: p === "windows"
+				? "Show in Explorer"
+				: "Open in File Manager";
 
 	if (!isConflict && !isConflictBranch) return null;
 
@@ -95,7 +103,7 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 							onClick={() => revealInFinder.mutate(config.repo_path)}
 							icon={<FolderOpen weight="bold" />}
 						>
-							Reveal in Finder
+							{revealLabel}
 						</ExternalButton>
 						<ExternalButton
 							onClick={() => openVSCode.mutate(config.repo_path)}
@@ -167,7 +175,7 @@ export default function ConflictPanel({ idx, config, status }: Props) {
 					onClick={() => revealInFinder.mutate(config.repo_path)}
 					icon={<FolderOpen weight="bold" />}
 				>
-					Reveal in Finder
+					{revealLabel}
 				</ExternalButton>
 				<ExternalButton
 					onClick={() => openVSCode.mutate(config.repo_path)}
