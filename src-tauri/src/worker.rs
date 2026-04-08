@@ -205,15 +205,21 @@ async fn run_resolve(
         }
     });
 
-    let result =
-        RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
-            .and_then(|syncer| match strategy {
+    let repo_path = cfg.repo_path.clone();
+    let sync_config = build_sync_config(cfg);
+    let result = tokio::task::spawn_blocking(move || {
+        RepositorySynchronizer::new_with_detected_branch(&repo_path, sync_config).and_then(
+            |syncer| match strategy {
                 ConflictResolutionStrategy::KeepMine => syncer.resolve_keep_mine(),
                 ConflictResolutionStrategy::AcceptRemote => syncer.resolve_accept_remote(),
                 ConflictResolutionStrategy::AbandonConflictBranch => {
                     syncer.abandon_conflict_branch()
                 }
-            });
+            },
+        )
+    })
+    .await
+    .expect("conflict resolution blocking task panicked");
 
     status_tx.send_if_modified(|s| {
         if let Some(rs) = s.repos.get_mut(idx) {
@@ -257,9 +263,14 @@ async fn run_complete_merge(
         }
     });
 
-    let result =
-        RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
-            .and_then(|syncer| syncer.complete_conflict_merge(resolved));
+    let repo_path = cfg.repo_path.clone();
+    let sync_config = build_sync_config(cfg);
+    let result = tokio::task::spawn_blocking(move || {
+        RepositorySynchronizer::new_with_detected_branch(&repo_path, sync_config)
+            .and_then(|syncer| syncer.complete_conflict_merge(resolved))
+    })
+    .await
+    .expect("complete merge blocking task panicked");
 
     status_tx.send_if_modified(|s| {
         if let Some(rs) = s.repos.get_mut(idx) {

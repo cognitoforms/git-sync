@@ -3,6 +3,7 @@ mod transport;
 use crate::error::{Result, SyncError};
 use chrono::Local;
 use git2::{BranchType, FileFavor, MergeOptions, Oid, Repository, Status, StatusOptions};
+use normalize_path::NormalizePath;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1168,22 +1169,14 @@ impl RepositorySynchronizer {
     /// Validate that a path from the frontend is relative and does not escape
     /// the repository root via path traversal (e.g. `../`, absolute paths).
     fn validate_resolved_path(repo_path: &Path, relative: &str) -> Result<PathBuf> {
-        let rel = Path::new(relative);
-        if rel.is_absolute() {
+        let path = repo_path.join(relative).normalize();
+        if !path.starts_with(repo_path) {
             return Err(SyncError::Other(format!(
-                "Resolved file path must be relative: {}",
+                "Resolved file path escapes repository root: {}",
                 relative
             )));
         }
-        for component in rel.components() {
-            if component == std::path::Component::ParentDir {
-                return Err(SyncError::Other(format!(
-                    "Path traversal detected in resolved file path: {}",
-                    relative
-                )));
-            }
-        }
-        Ok(repo_path.join(rel))
+        Ok(path)
     }
 
     fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
