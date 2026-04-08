@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use git_sync_lib::{SyncConfig, WatchConfig, WatchManager};
+use git_sync_lib::{ResolvedFileContent, SyncConfig, WatchConfig, WatchManager};
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
 use tracing::Instrument as _;
@@ -26,16 +26,8 @@ pub enum BgCmd {
     },
     CompleteMerge {
         index: usize,
-        resolved: Vec<ResolvedFileEntry>,
+        resolved: Vec<ResolvedFileContent>,
     },
-}
-
-/// Serialisable version of `ResolvedFileContent` passed from the frontend.
-#[derive(Clone)]
-pub struct ResolvedFileEntry {
-    pub path: String,
-    pub content: String,
-    pub deleted: bool,
 }
 
 pub fn build_sync_config_pub(cfg: &RepoConfig) -> SyncConfig {
@@ -248,10 +240,10 @@ async fn run_resolve(
 async fn run_complete_merge(
     idx: usize,
     cfg: &RepoConfig,
-    resolved: Vec<ResolvedFileEntry>,
+    resolved: Vec<ResolvedFileContent>,
     status_tx: Arc<watch::Sender<AppStatus>>,
 ) {
-    use git_sync_lib::{RepositorySynchronizer, ResolvedFileContent};
+    use git_sync_lib::RepositorySynchronizer;
 
     status_tx.send_if_modified(|s| {
         if let Some(rs) = s.repos.get_mut(idx) {
@@ -265,18 +257,9 @@ async fn run_complete_merge(
         }
     });
 
-    let resolved_content: Vec<ResolvedFileContent> = resolved
-        .into_iter()
-        .map(|e| ResolvedFileContent {
-            path: e.path,
-            content: e.content,
-            deleted: e.deleted,
-        })
-        .collect();
-
     let result =
         RepositorySynchronizer::new_with_detected_branch(&cfg.repo_path, build_sync_config(cfg))
-            .and_then(|syncer| syncer.complete_conflict_merge(resolved_content));
+            .and_then(|syncer| syncer.complete_conflict_merge(resolved));
 
     status_tx.send_if_modified(|s| {
         if let Some(rs) = s.repos.get_mut(idx) {

@@ -135,7 +135,7 @@ pub struct ConflictFileContent {
 }
 
 /// A single file's resolved content, sent back from the frontend.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResolvedFileContent {
     pub path: String,
     pub content: String,

@@ -81,6 +81,11 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const [resolvedMap, setResolvedMap] = useState<Record<string, Resolution>>(
 		{},
 	);
+	// Per-file resolution status: true when mismerge reports no remaining
+	// conflict markers (content_conflict) or the user has chosen keep/delete.
+	const [fileResolvedMap, setFileResolvedMap] = useState<
+		Record<string, boolean>
+	>({});
 	const [sidebarWidth, setSidebarWidth] = useState(224);
 
 	const isDragging = useRef(false);
@@ -115,10 +120,10 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const treeData = buildTreeItems(filePaths);
 	const currentFile = files?.find((f) => f.path === selectedPath);
 
-	const isFileResolved = (path: string) => !!resolvedMap[path];
+	const isFileResolved = (path: string) => fileResolvedMap[path] === true;
 	const resolvedCount = useMemo(
-		() => filePaths.filter((p) => !!resolvedMap[p]).length,
-		[filePaths, resolvedMap],
+		() => filePaths.filter((p) => fileResolvedMap[p] === true).length,
+		[filePaths, fileResolvedMap],
 	);
 	const allResolved =
 		files != null && files.length > 0 && resolvedCount === files.length;
@@ -136,12 +141,19 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 		}));
 	}
 
+	function handleConflictsResolvedChange(resolved: boolean) {
+		if (!currentFile) return;
+		setFileResolvedMap((m) => ({ ...m, [currentFile.path]: resolved }));
+	}
+
 	function handleKeepFile(path: string, content: string) {
 		setResolvedMap((m) => ({ ...m, [path]: { content, deleted: false } }));
+		setFileResolvedMap((m) => ({ ...m, [path]: true }));
 	}
 
 	function handleDeleteFile(path: string) {
 		setResolvedMap((m) => ({ ...m, [path]: { content: "", deleted: true } }));
+		setFileResolvedMap((m) => ({ ...m, [path]: true }));
 	}
 
 	async function handleCompleteMerge() {
@@ -261,12 +273,14 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 				</div>
 				<div className="flex-1 overflow-auto">
 					<MergeEditor
+						key={currentFile.path}
 						lhs={currentFile.theirs ?? ""}
 						ctr={
 							resolvedMap[currentFile.path]?.content ?? currentFile.base ?? ""
 						}
 						rhs={currentFile.ours ?? ""}
 						onCtrChange={handleCtrChange}
+						onConflictsResolvedChange={handleConflictsResolvedChange}
 						lhsEditable={false}
 						rhsEditable={false}
 						ctrEditable={true}
