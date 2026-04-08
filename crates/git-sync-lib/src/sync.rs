@@ -1032,12 +1032,16 @@ impl RepositorySynchronizer {
             let ours = conflict
                 .our
                 .as_ref()
-                .and_then(|e| self.repo.find_blob(e.id).ok())
+                .map(|e| self.repo.find_blob(e.id))
+                .transpose()
+                .map_err(|e| SyncError::Other(format!("failed to read 'ours' blob: {e}")))?
                 .map(|b| String::from_utf8_lossy(b.content()).into_owned());
             let theirs = conflict
                 .their
                 .as_ref()
-                .and_then(|e| self.repo.find_blob(e.id).ok())
+                .map(|e| self.repo.find_blob(e.id))
+                .transpose()
+                .map_err(|e| SyncError::Other(format!("failed to read 'theirs' blob: {e}")))?
                 .map(|b| String::from_utf8_lossy(b.content()).into_owned());
             let base = conflict
                 .ancestor
