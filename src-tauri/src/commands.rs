@@ -217,10 +217,10 @@ pub fn complete_conflict_merge(
     index: usize,
     resolved: Vec<ResolvedFilePayload>,
 ) -> Result<(), String> {
-    use crate::worker::ResolvedFileEntry;
-    let entries: Vec<ResolvedFileEntry> = resolved
+    use git_sync_lib::ResolvedFileContent;
+    let entries: Vec<ResolvedFileContent> = resolved
         .into_iter()
-        .map(|r| ResolvedFileEntry {
+        .map(|r| ResolvedFileContent {
             path: r.path,
             content: r.content,
             deleted: r.deleted,
