@@ -1,5 +1,5 @@
 use git_sync_lib::{
-    CommandGitTransport, RepositorySynchronizer, ResolvedFileContent, SyncConfig,
+    CommandGitTransport, ConflictKind, RepositorySynchronizer, ResolvedFileContent, SyncConfig,
     FALLBACK_BRANCH_PREFIX,
 };
 use std::fs;
@@ -193,9 +193,9 @@ fn direct_conflict_extracts_ours_theirs_base() {
     assert_eq!(files.len(), 1);
     let f = &files[0];
     assert_eq!(f.path, "file.txt");
-    assert_eq!(f.ours, OURS_CONTENT);
-    assert_eq!(f.theirs, THEIRS_CONTENT);
-    assert_eq!(f.base, BASE_CONTENT);
+    assert_eq!(f.ours.as_deref(), Some(OURS_CONTENT));
+    assert_eq!(f.theirs.as_deref(), Some(THEIRS_CONTENT));
+    assert_eq!(f.base.as_deref(), Some(BASE_CONTENT));
 }
 
 #[test]
@@ -245,9 +245,9 @@ fn fallback_branch_extracts_via_in_memory_merge() {
     assert_eq!(files.len(), 1);
     let f = &files[0];
     assert_eq!(f.path, "file.txt");
-    assert_eq!(f.ours, OURS_CONTENT);
-    assert_eq!(f.theirs, THEIRS_CONTENT);
-    assert_eq!(f.base, BASE_CONTENT);
+    assert_eq!(f.ours.as_deref(), Some(OURS_CONTENT));
+    assert_eq!(f.theirs.as_deref(), Some(THEIRS_CONTENT));
+    assert_eq!(f.base.as_deref(), Some(BASE_CONTENT));
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +297,7 @@ fn direct_complete_merge_with_ours_content() {
     s.complete_conflict_merge(vec![ResolvedFileContent {
         path: "file.txt".to_string(),
         content: OURS_CONTENT.to_string(),
+        deleted: false,
     }])
     .unwrap();
 
@@ -316,6 +317,7 @@ fn direct_complete_merge_with_custom_content() {
     s.complete_conflict_merge(vec![ResolvedFileContent {
         path: "file.txt".to_string(),
         content: "custom\n".to_string(),
+        deleted: false,
     }])
     .unwrap();
 
@@ -339,6 +341,7 @@ fn fallback_complete_merge_lands_on_target() {
     s.complete_conflict_merge(vec![ResolvedFileContent {
         path: "file.txt".to_string(),
         content: "merged\n".to_string(),
+        deleted: false,
     }])
     .unwrap();
 
@@ -359,6 +362,7 @@ fn fallback_complete_merge_creates_merge_commit() {
     s.complete_conflict_merge(vec![ResolvedFileContent {
         path: "file.txt".to_string(),
         content: "merged\n".to_string(),
+        deleted: false,
     }])
     .unwrap();
 
@@ -402,7 +406,191 @@ fn fallback_abandon_returns_to_target() {
 }
 
 // ---------------------------------------------------------------------------
-// Group 4 — get_conflict_info
+// Group 4 — Delete/Modify conflicts
+// ---------------------------------------------------------------------------
+
+/// Sets up a direct merge conflict where *our* side deleted `file.txt` and
+/// *their* side (origin/main) modified it.  The result is `our = None`,
+/// `their = Some(THEIRS_CONTENT)`.
+///
+/// Layout:
+///   bare/   ← A (base), C (theirs modified file.txt) — origin
+///   local/  ← A, then deleted file.txt — merge attempted, CONFLICT
+fn setup_direct_delete_modify_conflict(tmp: &TempDir) -> std::path::PathBuf {
+    let bare = tmp.path().join("bare_dm");
+    let helper = tmp.path().join("helper_dm");
+    let local = tmp.path().join("local_dm");
+
+    run_git(tmp.path(), &["init", "--bare", "bare_dm"]);
+    run_git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    run_git(tmp.path(), &["clone", "bare_dm", "helper_dm"]);
+    setup_git_user(&helper);
+    run_git(&helper, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    fs::write(helper.join("file.txt"), BASE_CONTENT).unwrap();
+    run_git(&helper, &["add", "file.txt"]);
+    run_git(&helper, &["commit", "-m", "initial"]);
+    run_git(&helper, &["push", "origin", "HEAD:main"]);
+
+    run_git(tmp.path(), &["clone", "bare_dm", "local_dm"]);
+    setup_git_user(&local);
+    // Our side: delete the file.
+    fs::remove_file(local.join("file.txt")).unwrap();
+    run_git(&local, &["rm", "file.txt"]);
+    run_git(&local, &["commit", "-m", "delete file"]);
+
+    // Their side: modify the file.
+    fs::write(helper.join("file.txt"), THEIRS_CONTENT).unwrap();
+    run_git(&helper, &["commit", "-am", "their changes"]);
+    run_git(&helper, &["push", "origin", "main"]);
+
+    run_git(&local, &["fetch", "origin"]);
+    // Attempt merge — expected to conflict.
+    let _ = Command::new("git")
+        .args(["merge", "--no-edit", "origin/main"])
+        .current_dir(&local)
+        .output()
+        .unwrap();
+
+    local
+}
+
+/// Sets up a direct merge conflict where *we* modified `file.txt` and
+/// *their* side (origin/main) deleted it.  The result is `our = Some(OURS_CONTENT)`,
+/// `their = None`.
+fn setup_direct_modify_delete_conflict(tmp: &TempDir) -> std::path::PathBuf {
+    let bare = tmp.path().join("bare_md");
+    let helper = tmp.path().join("helper_md");
+    let local = tmp.path().join("local_md");
+
+    run_git(tmp.path(), &["init", "--bare", "bare_md"]);
+    run_git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    run_git(tmp.path(), &["clone", "bare_md", "helper_md"]);
+    setup_git_user(&helper);
+    run_git(&helper, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    fs::write(helper.join("file.txt"), BASE_CONTENT).unwrap();
+    run_git(&helper, &["add", "file.txt"]);
+    run_git(&helper, &["commit", "-m", "initial"]);
+    run_git(&helper, &["push", "origin", "HEAD:main"]);
+
+    run_git(tmp.path(), &["clone", "bare_md", "local_md"]);
+    setup_git_user(&local);
+    // Our side: modify the file.
+    fs::write(local.join("file.txt"), OURS_CONTENT).unwrap();
+    run_git(&local, &["commit", "-am", "our changes"]);
+
+    // Their side: delete the file.
+    run_git(&helper, &["rm", "file.txt"]);
+    run_git(&helper, &["commit", "-m", "delete file"]);
+    run_git(&helper, &["push", "origin", "main"]);
+
+    run_git(&local, &["fetch", "origin"]);
+    // Attempt merge — expected to conflict.
+    let _ = Command::new("git")
+        .args(["merge", "--no-edit", "origin/main"])
+        .current_dir(&local)
+        .output()
+        .unwrap();
+
+    local
+}
+
+#[test]
+fn test_get_conflict_files_content_delete_by_us() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_direct_delete_modify_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    let files = s.get_conflict_files_content().unwrap();
+    assert_eq!(files.len(), 1);
+    let f = &files[0];
+    assert_eq!(f.path, "file.txt");
+    assert_eq!(f.conflict_kind, ConflictKind::DeletedByUs);
+    assert!(
+        f.ours.is_none(),
+        "ours should be None (we deleted the file)"
+    );
+    assert_eq!(
+        f.theirs.as_deref(),
+        Some(THEIRS_CONTENT),
+        "theirs should have the modified content"
+    );
+}
+
+#[test]
+fn test_get_conflict_files_content_delete_by_them() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_direct_modify_delete_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    let files = s.get_conflict_files_content().unwrap();
+    assert_eq!(files.len(), 1);
+    let f = &files[0];
+    assert_eq!(f.path, "file.txt");
+    assert_eq!(f.conflict_kind, ConflictKind::DeletedByThem);
+    assert_eq!(
+        f.ours.as_deref(),
+        Some(OURS_CONTENT),
+        "ours should have the modified content"
+    );
+    assert!(
+        f.theirs.is_none(),
+        "theirs should be None (they deleted the file)"
+    );
+}
+
+#[test]
+fn test_complete_merge_keep_file_after_delete_by_us() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_direct_delete_modify_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    // Resolve by keeping the file with theirs content.
+    s.complete_conflict_merge(vec![ResolvedFileContent {
+        path: "file.txt".to_string(),
+        content: THEIRS_CONTENT.to_string(),
+        deleted: false,
+    }])
+    .unwrap();
+
+    assert!(
+        local.join("file.txt").exists(),
+        "file should exist after keep"
+    );
+    assert_eq!(read_file(&local, "file.txt"), THEIRS_CONTENT);
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after merge"
+    );
+}
+
+#[test]
+fn test_complete_merge_delete_file_after_delete_by_us() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_direct_delete_modify_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    // Resolve by accepting the deletion.
+    s.complete_conflict_merge(vec![ResolvedFileContent {
+        path: "file.txt".to_string(),
+        content: String::new(),
+        deleted: true,
+    }])
+    .unwrap();
+
+    assert!(
+        !local.join("file.txt").exists(),
+        "file should not exist after delete resolution"
+    );
+    assert!(
+        head_is_clean(&local),
+        "working tree should be clean after merge"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Group 6 — get_conflict_info
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -35,6 +35,7 @@ pub enum BgCmd {
 pub struct ResolvedFileEntry {
     pub path: String,
     pub content: String,
+    pub deleted: bool,
 }
 
 pub fn build_sync_config_pub(cfg: &RepoConfig) -> SyncConfig {
@@ -269,6 +270,7 @@ async fn run_complete_merge(
         .map(|e| ResolvedFileContent {
             path: e.path,
             content: e.content,
+            deleted: e.deleted,
         })
         .collect();
 
