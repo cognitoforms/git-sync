@@ -122,10 +122,12 @@ pub enum ConflictKind {
     DeletedByThem,
 }
 
-/// 3-way file content for the merge editor.
+/// 3-way file content for merging.
 #[derive(Debug)]
 pub struct ConflictFileContent {
     pub path: String,
+    /// Their path when different from `path` (rename conflict).
+    pub their_path: Option<String>,
     /// None when our side deleted the file.
     pub ours: Option<String>,
     /// None when their side deleted the file.
@@ -135,7 +137,7 @@ pub struct ConflictFileContent {
     pub conflict_kind: ConflictKind,
 }
 
-/// A single file's resolved content, sent back from the frontend.
+/// A single file's resolved content.
 #[derive(Debug, Clone)]
 pub struct ResolvedFileContent {
     pub path: String,
@@ -981,8 +983,40 @@ impl RepositorySynchronizer {
         Ok(())
     }
 
-    /// Return the 3-way file content for every conflicting file so the
-    /// frontend can display a merge editor.
+    /// Perform an in-memory merge of HEAD against the remote target and return
+    /// the resulting index. Returns `None` when not on a fallback branch.
+    fn build_virtual_merge_index(&self) -> Result<Option<git2::Index>> {
+        if !self.is_on_fallback_branch()? {
+            return Ok(None);
+        }
+        let target_branch = self.get_target_branch()?;
+        let target_ref = format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+        let target_reference = self
+            .repo
+            .find_reference(&target_ref)
+            .map_err(|_| SyncError::Other(format!("Remote branch {} not found", target_branch)))?;
+        let our_commit = self.repo.head()?.peel_to_commit()?;
+        let target_commit = target_reference.peel_to_commit()?;
+        let index = self
+            .repo
+            .merge_commits(&our_commit, &target_commit, None)
+            .map_err(|e| SyncError::Other(format!("In-memory merge failed: {}", e)))?;
+        Ok(Some(index))
+    }
+
+    /// Extract the primary path from a conflict entry, preferring our side,
+    /// then theirs, then the common ancestor.
+    fn conflict_entry_path(conflict: git2::IndexConflict) -> String {
+        conflict
+            .our
+            .or(conflict.their)
+            .or(conflict.ancestor)
+            .and_then(|e| String::from_utf8(e.path).ok())
+            .unwrap_or_else(|| "<unknown>".to_string())
+    }
+
+    /// Return the 3-way file content for every conflicting file so they
+    /// can be merged.
     ///
     /// For a direct conflict (conflict markers already in the index): reads
     /// the staged conflict entries directly.
@@ -990,22 +1024,9 @@ impl RepositorySynchronizer {
     /// For a conflict branch merge (user's work on a fallback branch): performs
     /// an in-memory merge against the remote target to extract the 3-way blobs.
     pub fn get_conflict_files_content(&self) -> Result<Vec<ConflictFileContent>> {
-        if self.is_on_fallback_branch()? {
-            // In-memory merge to extract 3-way blobs without touching the working tree
-            let target_branch = self.get_target_branch()?;
-            let target_ref = format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
-            let target_reference = self.repo.find_reference(&target_ref).map_err(|_| {
-                SyncError::Other(format!("Remote branch {} not found", target_branch))
-            })?;
-            let our_commit = self.repo.head()?.peel_to_commit()?;
-            let target_commit = target_reference.peel_to_commit()?;
-            let virtual_index = self
-                .repo
-                .merge_commits(&our_commit, &target_commit, None)
-                .map_err(|e| SyncError::Other(format!("In-memory merge failed: {}", e)))?;
+        if let Some(virtual_index) = self.build_virtual_merge_index()? {
             return self.extract_conflict_contents_from_index(&virtual_index);
         }
-
         // Direct conflict: read from the on-disk index
         let index = self.repo.index()?;
         self.extract_conflict_contents_from_index(&index)
@@ -1018,16 +1039,28 @@ impl RepositorySynchronizer {
         let mut result = Vec::new();
         let conflicts = index.conflicts()?;
         for conflict in conflicts.flatten() {
-            let path = conflict
+            let our_path = conflict
                 .our
                 .as_ref()
-                .or(conflict.their.as_ref())
-                .or(conflict.ancestor.as_ref())
-                .map(|e| String::from_utf8_lossy(&e.path).to_string())
+                .map(|e| String::from_utf8_lossy(&e.path).to_string());
+            let their_path_raw = conflict
+                .their
+                .as_ref()
+                .map(|e| String::from_utf8_lossy(&e.path).to_string());
+            let ancestor_path = conflict
+                .ancestor
+                .as_ref()
+                .map(|e| String::from_utf8_lossy(&e.path).to_string());
+            let path = our_path
+                .clone()
+                .or_else(|| their_path_raw.clone())
+                .or(ancestor_path)
                 .unwrap_or_default();
             if path.is_empty() {
                 continue;
             }
+            // Populated when their side renamed the file relative to ours.
+            let their_path = their_path_raw.filter(|p| p != &path);
 
             let ours = conflict
                 .our
@@ -1057,6 +1090,7 @@ impl RepositorySynchronizer {
 
             result.push(ConflictFileContent {
                 path,
+                their_path,
                 ours,
                 theirs,
                 base,
@@ -1170,7 +1204,7 @@ impl RepositorySynchronizer {
         Ok(())
     }
 
-    /// Validate that a path from the frontend is relative and does not escape
+    /// Validate that a resolved file path is relative and does not escape
     /// the repository root via path traversal (e.g. `../`, absolute paths).
     fn validate_resolved_path(repo_path: &Path, relative: &str) -> Result<PathBuf> {
         let path = repo_path.join(relative).normalize();
@@ -1183,20 +1217,25 @@ impl RepositorySynchronizer {
         Ok(path)
     }
 
-    fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
-        for file in &resolved {
-            let full_path = Self::validate_resolved_path(&self._repo_path, &file.path)?;
-            if file.deleted {
-                if full_path.exists() {
-                    fs::remove_file(&full_path)?;
-                }
-            } else {
-                if let Some(parent) = full_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::write(&full_path, &file.content)?;
+    fn write_resolved_file(repo_path: &Path, file: &ResolvedFileContent) -> Result<()> {
+        let full_path = Self::validate_resolved_path(repo_path, &file.path)?;
+        if file.deleted {
+            if full_path.exists() {
+                fs::remove_file(&full_path)?;
             }
+        } else {
+            if let Some(parent) = full_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&full_path, &file.content)?;
         }
+        Ok(())
+    }
+
+    fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        resolved
+            .iter()
+            .try_for_each(|f| Self::write_resolved_file(&self._repo_path, f))?;
         self.auto_commit()
     }
 
@@ -1204,17 +1243,17 @@ impl RepositorySynchronizer {
     /// version for every conflicting file.
     pub fn resolve_keep_mine(&self) -> Result<()> {
         info!("Resolving conflict: keeping our version");
-        self.do_merge_with_favor(true)
+        self.do_merge_with_favor(FileFavor::Ours)
     }
 
     /// Resolve a direct conflict by merging the remote branch and accepting the
     /// remote version for every conflicting file.
     pub fn resolve_accept_remote(&self) -> Result<()> {
         info!("Resolving conflict: accepting remote version");
-        self.do_merge_with_favor(false)
+        self.do_merge_with_favor(FileFavor::Theirs)
     }
 
-    fn do_merge_with_favor(&self, keep_ours: bool) -> Result<()> {
+    fn do_merge_with_favor(&self, favor: FileFavor) -> Result<()> {
         let branch_name = self.get_current_branch()?;
         let remote_ref_name = format!("refs/remotes/{}/{}", self.config.remote_name, branch_name);
         let remote_ref = self
@@ -1224,11 +1263,7 @@ impl RepositorySynchronizer {
         let remote_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
 
         let mut merge_opts = MergeOptions::new();
-        merge_opts.file_favor(if keep_ours {
-            FileFavor::Ours
-        } else {
-            FileFavor::Theirs
-        });
+        merge_opts.file_favor(favor);
 
         let mut co = git2::build::CheckoutBuilder::new();
         co.force();
@@ -1328,14 +1363,8 @@ impl RepositorySynchronizer {
         // which may not always surface as STATUS_CONFLICTED above.
         let index = self.repo.index()?;
         if index.has_conflicts() {
-            let conflicts = index.conflicts()?;
-            for conflict in conflicts.flatten() {
-                let path = conflict
-                    .our
-                    .or(conflict.their)
-                    .or(conflict.ancestor)
-                    .and_then(|e| String::from_utf8(e.path).ok())
-                    .unwrap_or_else(|| "<unknown>".to_string());
+            for conflict in index.conflicts()?.flatten() {
+                let path = Self::conflict_entry_path(conflict);
                 if !paths.contains(&path) {
                     paths.push(path);
                 }
@@ -1348,37 +1377,12 @@ impl RepositorySynchronizer {
 
         // --- Conflict branch merge: in-memory merge to find would-be conflicts ---
         // We're on a fallback branch; the working tree has no markers yet.
-        // Merge our HEAD against the remote target in-memory to show the user
-        // which files will need attention.
-        if self.is_on_fallback_branch()? {
-            if let Ok(target_branch) = self.get_target_branch() {
-                let target_ref =
-                    format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
-                if let Ok(target_reference) = self.repo.find_reference(&target_ref) {
-                    if let (Ok(our_commit), Ok(target_commit)) = (
-                        self.repo.head()?.peel_to_commit(),
-                        target_reference.peel_to_commit(),
-                    ) {
-                        let merge_opts = MergeOptions::new();
-                        if let Ok(virtual_index) =
-                            self.repo
-                                .merge_commits(&our_commit, &target_commit, Some(&merge_opts))
-                        {
-                            if virtual_index.has_conflicts() {
-                                let conflicts = virtual_index.conflicts()?;
-                                for conflict in conflicts.flatten() {
-                                    let path = conflict
-                                        .our
-                                        .or(conflict.their)
-                                        .or(conflict.ancestor)
-                                        .and_then(|e| String::from_utf8(e.path).ok())
-                                        .unwrap_or_else(|| "<unknown>".to_string());
-                                    if !paths.contains(&path) {
-                                        paths.push(path);
-                                    }
-                                }
-                            }
-                        }
+        if let Some(virtual_index) = self.build_virtual_merge_index()? {
+            if virtual_index.has_conflicts() {
+                for conflict in virtual_index.conflicts()?.flatten() {
+                    let path = Self::conflict_entry_path(conflict);
+                    if !paths.contains(&path) {
+                        paths.push(path);
                     }
                 }
             }
