@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import MergeEditor from "./MergeEditor";
 import { useConflictFilesContent, useCompleteMerge } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,14 @@ import {
 	DialogHeader,
 	DialogFooter,
 } from "@/components/ui/dialog";
-import { TreeView, type TreeDataItem } from "@/components/tree-view";
+import {
+	ResizablePanelGroup,
+	ResizablePanel,
+	ResizableHandle,
+} from "@/components/ui/resizable";
+import { TreeView, type TreeDataItem } from "@/components/ui/tree-view";
 import { cn } from "@/lib/utils";
+import type { ConflictFileContentPayload } from "@/bindings";
 
 interface Props {
 	isOpen: boolean;
@@ -71,7 +77,134 @@ function buildTreeItems(filePaths: string[]): TreeDataItem[] {
 
 type Resolution = { content: string; deleted: boolean };
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function FilePathHeader({ file }: { file: ConflictFileContentPayload }) {
+	return (
+		<div className="text-muted-foreground flex h-8 items-center gap-1.5 px-3 font-mono text-xs">
+			{file.their_path != null ? (
+				<>
+					<span className="opacity-60">{file.their_path}</span>
+					<span className="opacity-40">→</span>
+					<span>{file.path}</span>
+				</>
+			) : (
+				file.path
+			)}
+		</div>
+	);
+}
+
+interface DeleteConflictViewProps {
+	file: ConflictFileContentPayload;
+	resolvedMap: Record<string, Resolution>;
+	onKeepFile: (path: string, content: string) => void;
+	onDeleteFile: (path: string) => void;
+}
+
+function DeleteConflictView({
+	file,
+	resolvedMap,
+	onKeepFile,
+	onDeleteFile,
+}: DeleteConflictViewProps) {
+	const isDeletedByUs = file.conflict_kind.type === "deleted_by_us";
+	const survivingContent = isDeletedByUs ? file.theirs : file.ours;
+	const description = isDeletedByUs
+		? "This file was deleted locally but modified remotely."
+		: "This file was modified locally but deleted remotely.";
+	const keepLabel = isDeletedByUs ? "Keep Remote File" : "Keep Local File";
+
+	return (
+		<>
+			<FilePathHeader file={file} />
+			<Separator />
+			<div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
+				<div className="rounded-md border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+					{description}
+				</div>
+				{survivingContent != null && (
+					<div className="flex flex-1 flex-col gap-1 overflow-auto">
+						<div className="text-muted-foreground text-xs font-medium">
+							{isDeletedByUs ? "Remote content" : "Local content"}
+						</div>
+						<pre className="bg-muted flex-1 overflow-auto rounded-md p-3 font-mono text-xs">
+							{survivingContent}
+						</pre>
+					</div>
+				)}
+				<div className="flex shrink-0 gap-2">
+					<Button
+						size="sm"
+						variant={
+							resolvedMap[file.path]?.deleted === false ? "default" : "outline"
+						}
+						onClick={() => onKeepFile(file.path, survivingContent ?? "")}
+					>
+						{keepLabel}
+					</Button>
+					<Button
+						size="sm"
+						variant={
+							resolvedMap[file.path]?.deleted === true ? "default" : "outline"
+						}
+						onClick={() => onDeleteFile(file.path)}
+					>
+						Delete File
+					</Button>
+				</div>
+			</div>
+		</>
+	);
+}
+
+interface ContentConflictViewProps {
+	file: ConflictFileContentPayload;
+	resolvedContent: string | undefined;
+	onCtrChange: (content: string) => void;
+	onConflictsResolvedChange: (resolved: boolean) => void;
+}
+
+function ContentConflictView({
+	file,
+	resolvedContent,
+	onCtrChange,
+	onConflictsResolvedChange,
+}: ContentConflictViewProps) {
+	return (
+		<>
+			<FilePathHeader file={file} />
+
+			<Separator />
+
+			{/* Column labels */}
+			<div className="text-muted-foreground flex shrink-0 border-b text-xs">
+				<div className="flex-1 px-3 py-1 font-medium">Upstream changes</div>
+				<div className="w-10 shrink-0" />
+				<div className="flex-1 px-3 py-1 font-medium">Resolved (editable)</div>
+				<div className="w-10 shrink-0" />
+				<div className="flex-1 px-3 py-1 font-medium">My changes</div>
+			</div>
+			<div className="flex-1 overflow-auto">
+				<MergeEditor
+					key={file.path}
+					lhs={file.theirs ?? ""}
+					ctr={resolvedContent ?? file.base ?? ""}
+					rhs={file.ours ?? ""}
+					onCtrChange={onCtrChange}
+					onConflictsResolvedChange={onConflictsResolvedChange}
+					lhsEditable={false}
+					rhsEditable={false}
+					ctrEditable={true}
+					wrapLines={true}
+					className="h-full!"
+				/>
+			</div>
+		</>
+	);
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const { data: files, isLoading } = useConflictFilesContent(repoIdx, isOpen);
@@ -81,45 +214,14 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const [resolvedMap, setResolvedMap] = useState<Record<string, Resolution>>(
 		{},
 	);
-	// Per-file resolution status: true when mismerge reports no remaining
-	// conflict markers (content_conflict) or the user has chosen keep/delete.
 	const [fileResolvedMap, setFileResolvedMap] = useState<
 		Record<string, boolean>
 	>({});
-	const [sidebarWidth, setSidebarWidth] = useState(224);
-
-	const isDragging = useRef(false);
-	const dragStartX = useRef(0);
-	const dragStartWidth = useRef(0);
-
-	useEffect(() => {
-		if (!isOpen) return;
-		function handleMouseMove(e: MouseEvent) {
-			if (!isDragging.current) return;
-			const delta = e.clientX - dragStartX.current;
-			setSidebarWidth(
-				Math.max(120, Math.min(480, dragStartWidth.current + delta)),
-			);
-		}
-		function handleMouseUp() {
-			isDragging.current = false;
-		}
-		document.addEventListener("mousemove", handleMouseMove);
-		document.addEventListener("mouseup", handleMouseUp);
-		return () => {
-			document.removeEventListener("mousemove", handleMouseMove);
-			document.removeEventListener("mouseup", handleMouseUp);
-		};
-	}, [isOpen]);
-
-	useEffect(() => {
-		if (!files || files.length === 0) return;
-		setSelectedPath(files[0].path);
-	}, [files]);
 
 	const filePaths = files?.map((f) => f.path) ?? [];
 	const treeData = buildTreeItems(filePaths);
-	const currentFile = files?.find((f) => f.path === selectedPath);
+	const currentFile =
+		files?.find((f) => f.path === selectedPath) ?? files?.[0] ?? null;
 
 	const isFileResolved = (path: string) => fileResolvedMap[path] === true;
 	const resolvedCount = useMemo(
@@ -170,15 +272,6 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 		onClose();
 	}
 
-	function handleDividerMouseDown(e: React.MouseEvent) {
-		isDragging.current = true;
-		dragStartX.current = e.clientX;
-		dragStartWidth.current = sidebarWidth;
-		e.preventDefault();
-	}
-
-	// ── Editor area ────────────────────────────────────────────────────────────
-
 	function renderEditorArea() {
 		if (!currentFile) {
 			return (
@@ -191,105 +284,24 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 		}
 
 		const kind = currentFile.conflict_kind.type;
-
 		if (kind === "deleted_by_us" || kind === "deleted_by_them") {
-			const isDeletedByUs = kind === "deleted_by_us";
-			const survivingContent = isDeletedByUs
-				? currentFile.theirs
-				: currentFile.ours;
-			const description = isDeletedByUs
-				? "This file was deleted locally but modified remotely."
-				: "This file was modified locally but deleted remotely.";
-			const keepLabel = isDeletedByUs ? "Keep Remote File" : "Keep Local File";
-
 			return (
-				<>
-					<div className="text-muted-foreground flex h-8 items-center px-3 font-mono text-xs">
-						{currentFile.path}
-					</div>
-					<Separator />
-					<div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
-						<div className="rounded-md border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-							{description}
-						</div>
-						{survivingContent != null && (
-							<div className="flex flex-1 flex-col gap-1 overflow-auto">
-								<div className="text-muted-foreground text-xs font-medium">
-									{isDeletedByUs ? "Remote content" : "Local content"}
-								</div>
-								<pre className="bg-muted flex-1 overflow-auto rounded-md p-3 font-mono text-xs">
-									{survivingContent}
-								</pre>
-							</div>
-						)}
-						<div className="flex shrink-0 gap-2">
-							<Button
-								size="sm"
-								variant={
-									resolvedMap[currentFile.path]?.deleted === false
-										? "default"
-										: "outline"
-								}
-								onClick={() =>
-									handleKeepFile(currentFile.path, survivingContent ?? "")
-								}
-							>
-								{keepLabel}
-							</Button>
-							<Button
-								size="sm"
-								variant={
-									resolvedMap[currentFile.path]?.deleted === true
-										? "default"
-										: "outline"
-								}
-								onClick={() => handleDeleteFile(currentFile.path)}
-							>
-								Delete File
-							</Button>
-						</div>
-					</div>
-				</>
+				<DeleteConflictView
+					file={currentFile}
+					resolvedMap={resolvedMap}
+					onKeepFile={handleKeepFile}
+					onDeleteFile={handleDeleteFile}
+				/>
 			);
 		}
 
-		// content_conflict — standard 3-pane merge editor
 		return (
-			<>
-				<div className="text-muted-foreground flex h-8 items-center px-3 font-mono text-xs">
-					{currentFile.path}
-				</div>
-
-				<Separator />
-
-				{/* Column labels */}
-				<div className="text-muted-foreground flex shrink-0 border-b text-xs">
-					<div className="flex-1 px-3 py-1 font-medium">Upstream changes</div>
-					<div className="w-10 shrink-0" />
-					<div className="flex-1 px-3 py-1 font-medium">
-						Resolved (editable)
-					</div>
-					<div className="w-10 shrink-0" />
-					<div className="flex-1 px-3 py-1 font-medium">My changes</div>
-				</div>
-				<div className="flex-1 overflow-auto">
-					<MergeEditor
-						key={currentFile.path}
-						lhs={currentFile.theirs ?? ""}
-						ctr={
-							resolvedMap[currentFile.path]?.content ?? currentFile.base ?? ""
-						}
-						rhs={currentFile.ours ?? ""}
-						onCtrChange={handleCtrChange}
-						onConflictsResolvedChange={handleConflictsResolvedChange}
-						lhsEditable={false}
-						rhsEditable={false}
-						ctrEditable={true}
-						wrapLines={true}
-						className="h-full!"
-					/>
-				</div>
-			</>
+			<ContentConflictView
+				file={currentFile}
+				resolvedContent={resolvedMap[currentFile.path]?.content}
+				onCtrChange={handleCtrChange}
+				onConflictsResolvedChange={handleConflictsResolvedChange}
+			/>
 		);
 	}
 
@@ -315,11 +327,16 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 				</DialogHeader>
 
 				{/* Body */}
-				<div className="flex min-h-0 flex-1">
+				<ResizablePanelGroup
+					orientation="horizontal"
+					className="min-h-0 flex-1"
+				>
 					{/* File tree sidebar */}
-					<div
-						className="flex shrink-0 flex-col"
-						style={{ width: sidebarWidth }}
+					<ResizablePanel
+						defaultSize={224}
+						minSize={120}
+						maxSize={480}
+						className="flex flex-col"
 					>
 						<div className="text-muted-foreground flex h-8 items-center px-3 text-xs font-medium">
 							Files ({filePaths.length})
@@ -361,19 +378,15 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 								/>
 							)}
 						</div>
-					</div>
+					</ResizablePanel>
 
-					{/* Drag handle */}
-					<div
-						className="bg-border hover:bg-primary/40 w-px shrink-0 cursor-col-resize transition-colors"
-						onMouseDown={handleDividerMouseDown}
-					/>
+					<ResizableHandle />
 
 					{/* Editor */}
-					<div className="flex min-w-0 flex-1 flex-col">
+					<ResizablePanel className="flex flex-col">
 						{renderEditorArea()}
-					</div>
-				</div>
+					</ResizablePanel>
+				</ResizablePanelGroup>
 
 				{/* Footer */}
 				<DialogFooter className="flex-row items-center border-t px-4 py-2.5">
