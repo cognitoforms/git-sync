@@ -164,6 +164,8 @@ impl From<git_sync_lib::ConflictKind> for ConflictKindPayload {
 #[derive(Serialize, Clone, Debug, specta::Type)]
 pub struct ConflictFileContentPayload {
     pub path: String,
+    /// Their path when different from `path` (rename conflict).
+    pub their_path: Option<String>,
     pub ours: Option<String>,
     pub theirs: Option<String>,
     pub base: Option<String>,
@@ -202,6 +204,7 @@ pub fn get_conflict_files_content(
         .into_iter()
         .map(|f| ConflictFileContentPayload {
             path: f.path,
+            their_path: f.their_path,
             ours: f.ours,
             theirs: f.theirs,
             base: f.base,

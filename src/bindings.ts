@@ -33,6 +33,8 @@ export type AppStatus = {
 
 export type ConflictFileContentPayload = {
 	path: string,
+	// Their path when different from `path` (rename conflict).
+	their_path: string | null,
 	ours: string | null,
 	theirs: string | null,
 	base: string | null,
