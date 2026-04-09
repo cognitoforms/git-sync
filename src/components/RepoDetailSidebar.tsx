@@ -5,12 +5,11 @@ import { formatLastSync, commands, events } from "@/api";
 import type { FrontendLogEntry, RepoStatus } from "@/bindings";
 import type { ResolvedRepo } from "@/hooks/queries";
 import RepoStatusBadge, { ERROR_LABELS } from "./RepoStatusBadge";
+import ConflictPanel from "./ConflictPanel";
 
 const ERROR_HINTS: Record<string, string> = {
 	auth: "Check your SSH keys or repository credentials.",
 	network: "Check your network connection and try again.",
-	conflict:
-		"Open the repository in a Git client to resolve the conflicts, then sync again.",
 	config: "Review the repository settings (remote, branch).",
 	state:
 		"The repository is in an intermediate Git state. It may resolve automatically.",
@@ -28,6 +27,7 @@ interface Props {
 }
 
 export default function RepoDetailSidebar({
+	idx,
 	config,
 	status,
 	onClose,
@@ -65,6 +65,10 @@ export default function RepoDetailSidebar({
 
 	const name =
 		config.name || config.repo_path.split(/[\\/]/).pop() || config.repo_path;
+
+	const isConflictCategory =
+		status?.error?.category === "conflict" ||
+		status?.error?.category === "conflict_branch";
 
 	return (
 		<div className="bg-background border-border flex h-full w-full flex-col border-l [box-shadow:-4px_0_16px_rgb(0_0_0_/_0.08)]">
@@ -108,33 +112,23 @@ export default function RepoDetailSidebar({
 						<div className="text-muted-foreground text-xs">
 							Last sync: {formatLastSync(status.last_sync_time)}
 						</div>
-						{status.error &&
-							(status.error.category === "conflict_branch" ? (
-								<div className="mt-1 space-y-1 rounded bg-amber-50 p-1.5 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
-									<div className="font-medium">Conflict branch active</div>
-									<div>
-										Changes saved to{" "}
-										<span className="font-mono">{status.error.branch}</span>
-									</div>
-									<div className="italic">
-										Merge this branch into your target branch, then sync again.
-									</div>
+						{status.error && isConflictCategory ? (
+							<ConflictPanel idx={idx} config={config} status={status} />
+						) : status.error ? (
+							<div className="mt-1 space-y-1 rounded bg-red-50 p-1.5 text-xs text-red-700 dark:bg-red-950/20 dark:text-red-400">
+								<div className="font-medium">
+									{ERROR_LABELS[status.error.category] ?? "Sync error"}
 								</div>
-							) : (
-								<div className="mt-1 space-y-1 rounded bg-red-50 p-1.5 text-xs text-red-700 dark:bg-red-950/20 dark:text-red-400">
-									<div className="font-medium">
-										{ERROR_LABELS[status.error.category] ?? "Sync error"}
-									</div>
-									<div className="text-red-600 dark:text-red-500">
-										{status.error.message}
-									</div>
-									{ERROR_HINTS[status.error.category] && (
-										<div className="text-red-500/80 italic dark:text-red-400/70">
-											{ERROR_HINTS[status.error.category]}
-										</div>
-									)}
+								<div className="text-red-600 dark:text-red-500">
+									{status.error.message}
 								</div>
-							))}
+								{ERROR_HINTS[status.error.category] && (
+									<div className="text-red-500/80 italic dark:text-red-400/70">
+										{ERROR_HINTS[status.error.category]}
+									</div>
+								)}
+							</div>
+						) : null}
 					</>
 				) : (
 					<div className="text-muted-foreground text-sm">Loading…</div>

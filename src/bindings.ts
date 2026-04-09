@@ -14,6 +14,10 @@ export const commands = {
 	validateRepoPath: (path: string) => __TAURI_INVOKE<boolean>("validate_repo_path", { path }),
 	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
+	getConflictInfo: (index: number) => typedError<ConflictInfoPayload, string>(__TAURI_INVOKE("get_conflict_info", { index })),
+	resolveConflict: (index: number, strategy: ConflictResolutionStrategyPayload) => typedError<null, string>(__TAURI_INVOKE("resolve_conflict", { index, strategy })),
+	getConflictFilesContent: (index: number) => typedError<ConflictFileContentPayload[], string>(__TAURI_INVOKE("get_conflict_files_content", { index })),
+	completeConflictMerge: (index: number, resolved: ResolvedFilePayload[]) => typedError<null, string>(__TAURI_INVOKE("complete_conflict_merge", { index, resolved })),
 };
 
 /** Events */
@@ -26,6 +30,27 @@ export const events = {
 export type AppStatus = {
 	repos: RepoStatus[],
 };
+
+export type ConflictFileContentPayload = {
+	path: string,
+	// Their path when different from `path` (rename conflict).
+	their_path: string | null,
+	ours: string | null,
+	theirs: string | null,
+	base: string | null,
+	conflict_kind: ConflictKindPayload,
+};
+
+export type ConflictInfoPayload = {
+	conflicted_files: string[],
+	on_conflict_branch: boolean,
+	conflict_branch_name: string | null,
+	target_branch: string,
+};
+
+export type ConflictKindPayload = { type: "content_conflict" } | { type: "deleted_by_us" } | { type: "deleted_by_them" };
+
+export type ConflictResolutionStrategyPayload = "keep_mine" | "accept_remote" | "abandon_conflict_branch";
 
 export type DesktopConfig = {
 	global?: GlobalSettings,
@@ -74,6 +99,12 @@ export type RepoStatus = {
 	is_syncing: boolean,
 	error: SyncErrorPayload | null,
 	last_sync_time: string | null,
+};
+
+export type ResolvedFilePayload = {
+	path: string,
+	content: string,
+	deleted: boolean,
 };
 
 export type StatusUpdateEvent = AppStatus;
