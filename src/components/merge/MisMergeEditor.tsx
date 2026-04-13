@@ -1,9 +1,12 @@
 import "@mismerge/core/styles.css";
 import "@/styles/mismerge.css";
 import { ComponentProps, useEffect, useRef } from "react";
-import { MisMerge3 } from "@mismerge/react";
-import { DefaultDarkColors, DefaultLightColors } from "@mismerge/react";
-import { useTheme } from "./ThemeProvider";
+import {
+	MisMerge3,
+	DefaultDarkColors,
+	DefaultLightColors,
+} from "@mismerge/react";
+import { useTheme } from "../ThemeProvider";
 
 type MisMerge3Instance = ComponentProps<typeof MisMerge3>;
 type Props = Omit<
@@ -13,7 +16,7 @@ type Props = Omit<
 	className?: string;
 };
 
-export default function MergeEditor({ className, ...props }: Props) {
+export default function MisMergeEditor({ className, ...props }: Props) {
 	const { resolvedTheme } = useTheme();
 	const colors =
 		resolvedTheme === "dark" ? DefaultDarkColors : DefaultLightColors;

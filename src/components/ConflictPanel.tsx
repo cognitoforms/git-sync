@@ -10,7 +10,7 @@ import {
 import type { RepoStatus } from "@/bindings";
 import type { ResolvedRepo } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
-import MergeEditorModal from "./MergeEditorModal";
+import MergeEditorModal from "./merge/MergeEditorModal";
 
 interface Props {
 	idx: number;
