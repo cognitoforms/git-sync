@@ -161,6 +161,9 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let win_builder = win_builder.decorations(false);
 
+            #[cfg(target_os = "windows")]
+            let win_builder = win_builder.scroll_bar_style(tauri::webview::ScrollBarStyle::FluentOverlay);
+
             win_builder.build()?;
 
             // Push status updates to the frontend whenever the worker sends a new snapshot.
