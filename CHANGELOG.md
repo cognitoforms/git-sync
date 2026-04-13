@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/cognitoforms/git-sync/compare/git-sync-tauri-v0.2.2...git-sync-tauri-v0.3.0) (2026-04-13)
+
+
+### Features
+
+* improve update notification UI, check every 30 minutes ([46e22c3](https://github.com/cognitoforms/git-sync/commit/46e22c38bf00f1bc3f31d68b31c03020b7c1b5ec))
+
+
+### Bug Fixes
+
+* correct traffic light icon position on mac ([8f80f47](https://github.com/cognitoforms/git-sync/commit/8f80f47631179f9bb48d75315fd6a4f66d3206a6))
+* **windows:** enable overlay scrollbars ([f017407](https://github.com/cognitoforms/git-sync/commit/f017407078079a3040274486583a07087db5176f))
+
 ## [0.2.2](https://github.com/cognitoforms/git-sync/compare/git-sync-tauri-v0.2.1...git-sync-tauri-v0.2.2) (2026-04-03)
 
 
