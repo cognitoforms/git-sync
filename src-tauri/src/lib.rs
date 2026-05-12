@@ -162,7 +162,8 @@ pub fn run() {
             let win_builder = win_builder.decorations(false);
 
             #[cfg(target_os = "windows")]
-            let win_builder = win_builder.scroll_bar_style(tauri::webview::ScrollBarStyle::FluentOverlay);
+            let win_builder =
+                win_builder.scroll_bar_style(tauri::webview::ScrollBarStyle::FluentOverlay);
 
             win_builder.build()?;
 
