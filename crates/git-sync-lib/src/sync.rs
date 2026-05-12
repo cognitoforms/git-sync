@@ -2,7 +2,8 @@ mod transport;
 
 use crate::error::{Result, SyncError};
 use chrono::Local;
-use git2::{BranchType, MergeOptions, Oid, Repository, Status, StatusOptions};
+use git2::{BranchType, FileFavor, MergeOptions, Oid, Repository, Status, StatusOptions};
+use normalize_path::NormalizePath;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -108,6 +109,55 @@ pub enum SyncState {
 pub enum UnhandledFileState {
     /// File has merge conflicts
     Conflicted { path: String },
+}
+
+/// 3-way file content for merging, shaped by conflict type.
+#[derive(Debug)]
+pub enum ConflictFileContent {
+    /// Both sides modified the file (standard 3-way merge).
+    /// `their_path` is set when their side also renamed the file.
+    Content {
+        path: String,
+        their_path: Option<String>,
+        ours: String,
+        theirs: String,
+        base: Option<String>,
+    },
+    /// Our side deleted the file; their side modified it.
+    DeletedByUs {
+        path: String,
+        theirs: String,
+        base: Option<String>,
+    },
+    /// Their side deleted the file; our side modified it.
+    DeletedByThem {
+        path: String,
+        ours: String,
+        base: Option<String>,
+    },
+    /// Both sides renamed the file to different paths. Content may also differ.
+    RenameRename {
+        our_path: String,
+        their_path: String,
+        ours: String,
+        theirs: String,
+        base: Option<String>,
+    },
+}
+
+/// Resolution for a single conflict file.
+#[derive(Debug, Clone)]
+pub enum ResolvedFileContent {
+    /// Write content to path (content conflicts; keep-side of delete conflicts).
+    Written { path: String, content: String },
+    /// Delete the file (accept-deletion side of delete conflicts).
+    Deleted { path: String },
+    /// Rename/rename: write to chosen_path, delete discarded_path.
+    RenameResolved {
+        chosen_path: String,
+        discarded_path: String,
+        content: String,
+    },
 }
 
 /// State for tracking fallback branch return attempts (in-memory only)
@@ -945,6 +995,562 @@ impl RepositorySynchronizer {
         );
 
         Ok(())
+    }
+
+    /// Perform an in-memory merge of HEAD against the remote target and return
+    /// the resulting index. Returns `None` when not on a fallback branch.
+    fn build_virtual_merge_index(&self) -> Result<Option<git2::Index>> {
+        if !self.is_on_fallback_branch()? {
+            return Ok(None);
+        }
+        let target_branch = self.get_target_branch()?;
+        let target_ref = format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+        let target_reference = self
+            .repo
+            .find_reference(&target_ref)
+            .map_err(|_| SyncError::Other(format!("Remote branch {} not found", target_branch)))?;
+        let our_commit = self.repo.head()?.peel_to_commit()?;
+        let target_commit = target_reference.peel_to_commit()?;
+        let index = self
+            .repo
+            .merge_commits(&our_commit, &target_commit, None)
+            .map_err(|e| SyncError::Other(format!("In-memory merge failed: {}", e)))?;
+        Ok(Some(index))
+    }
+
+    /// Extract the primary path from a conflict entry, preferring our side,
+    /// then theirs, then the common ancestor.
+    fn conflict_entry_path(conflict: git2::IndexConflict) -> String {
+        conflict
+            .our
+            .or(conflict.their)
+            .or(conflict.ancestor)
+            .and_then(|e| String::from_utf8(e.path).ok())
+            .unwrap_or_else(|| "<unknown>".to_string())
+    }
+
+    /// Return the 3-way file content for every conflicting file so they
+    /// can be merged.
+    ///
+    /// For a direct conflict (conflict markers already in the index): reads
+    /// the staged conflict entries directly.
+    ///
+    /// For a conflict branch merge (user's work on a fallback branch): performs
+    /// an in-memory merge against the remote target to extract the 3-way blobs.
+    pub fn get_conflict_files_content(&self) -> Result<Vec<ConflictFileContent>> {
+        if let Some(virtual_index) = self.build_virtual_merge_index()? {
+            return self.extract_conflict_contents_from_index(&virtual_index);
+        }
+        // Direct conflict: read from the on-disk index
+        let index = self.repo.index()?;
+        self.extract_conflict_contents_from_index(&index)
+    }
+
+    fn extract_conflict_contents_from_index(
+        &self,
+        index: &git2::Index,
+    ) -> Result<Vec<ConflictFileContent>> {
+        use std::collections::HashMap;
+
+        // For rename/rename conflicts, libgit2 yields the ancestor (stage 1),
+        // our rename target (stage 2), and their rename target (stage 3) as
+        // three *separate* conflict entries, each with a different path.
+        // We detect them in a two-pass approach:
+        //
+        // Pass 1 — collect normal conflicts; stash ancestor-only entries.
+        // Pass 2 — promote matching (DeletedByThem, DeletedByUs) pairs whose
+        //          blob OIDs match a stashed ancestor into RenameRename.
+
+        // Stashed ancestor-only entries: OID → (ancestor_path, base_content).
+        let mut orphaned_ancestors: HashMap<git2::Oid, (String, Option<String>)> = HashMap::new();
+        // Parallel OID tracking for entries pushed to `result`.
+        let mut result: Vec<ConflictFileContent> = Vec::new();
+        let mut result_oids: Vec<(Option<git2::Oid>, Option<git2::Oid>)> = Vec::new();
+
+        let conflicts = index.conflicts()?;
+        for conflict in conflicts.flatten() {
+            let our_path = conflict
+                .our
+                .as_ref()
+                .map(|e| String::from_utf8_lossy(&e.path).to_string());
+            let their_path_raw = conflict
+                .their
+                .as_ref()
+                .map(|e| String::from_utf8_lossy(&e.path).to_string());
+            let ancestor_path_opt = conflict
+                .ancestor
+                .as_ref()
+                .map(|e| String::from_utf8_lossy(&e.path).to_string());
+            let path = our_path
+                .clone()
+                .or_else(|| their_path_raw.clone())
+                .or_else(|| ancestor_path_opt.clone())
+                .unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            // Populated when their side renamed the file relative to ours.
+            let their_path = their_path_raw.filter(|p| p != &path);
+            // RenameRename (single-entry variant): both sides changed the path
+            // away from the ancestor *and* libgit2 grouped all three stages
+            // into one conflict.
+            let our_renamed = our_path.as_deref() != ancestor_path_opt.as_deref();
+            let they_renamed = their_path.is_some();
+
+            let our_oid = conflict.our.as_ref().map(|e| e.id);
+            let their_oid = conflict.their.as_ref().map(|e| e.id);
+
+            let ours = conflict
+                .our
+                .as_ref()
+                .map(|e| self.repo.find_blob(e.id))
+                .transpose()
+                .map_err(|e| SyncError::Other(format!("failed to read 'ours' blob: {e}")))?
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned());
+            let theirs = conflict
+                .their
+                .as_ref()
+                .map(|e| self.repo.find_blob(e.id))
+                .transpose()
+                .map_err(|e| SyncError::Other(format!("failed to read 'theirs' blob: {e}")))?
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned());
+            let base = conflict
+                .ancestor
+                .as_ref()
+                .and_then(|e| self.repo.find_blob(e.id).ok())
+                .map(|b| String::from_utf8_lossy(b.content()).into_owned());
+
+            let entry = match (ours, theirs) {
+                // Ancestor-only: stage-1 entry orphaned by a rename/rename.
+                // Stash it; pass 2 will correlate it with the ours/theirs entries.
+                (None, None) => {
+                    if let Some(ref anc) = conflict.ancestor {
+                        if !anc.id.is_zero() {
+                            orphaned_ancestors.insert(anc.id, (path, base));
+                        }
+                    }
+                    continue;
+                }
+                (None, Some(theirs_content)) => ConflictFileContent::DeletedByUs {
+                    path,
+                    theirs: theirs_content,
+                    base,
+                },
+                (Some(ours_content), None) => ConflictFileContent::DeletedByThem {
+                    path,
+                    ours: ours_content,
+                    base,
+                },
+                (Some(ours_content), Some(theirs_content)) if our_renamed && they_renamed => {
+                    ConflictFileContent::RenameRename {
+                        our_path: path,
+                        their_path: their_path.unwrap(), // guaranteed Some when they_renamed
+                        ours: ours_content,
+                        theirs: theirs_content,
+                        base,
+                    }
+                }
+                (Some(ours_content), Some(theirs_content)) => ConflictFileContent::Content {
+                    path,
+                    their_path,
+                    ours: ours_content,
+                    theirs: theirs_content,
+                    base,
+                },
+            };
+            result.push(entry);
+            result_oids.push((our_oid, their_oid));
+        }
+
+        // Pass 2 — promote pairs into RenameRename.
+        //
+        // For a pure rename (identical content) the ancestor, ours, and theirs
+        // blobs share the same OID, making correlation unambiguous.  For a
+        // rename+content conflict the OIDs differ; we leave those as-is.
+        if !orphaned_ancestors.is_empty() {
+            let mut i = 0;
+            while i < result.len() {
+                // Look for an ours-only entry whose OID matches an orphaned ancestor.
+                let our_oid = result_oids[i].0;
+                let is_ours_only = matches!(
+                    &result[i],
+                    ConflictFileContent::DeletedByThem { base: None, .. }
+                );
+                if is_ours_only {
+                    if let Some(oid) = our_oid {
+                        if let Some((_anc_path, anc_content)) =
+                            orphaned_ancestors.get(&oid).cloned()
+                        {
+                            // Find a theirs-only entry with the same OID.
+                            let j = result.iter().enumerate().position(|(k, e)| {
+                                k != i
+                                    && matches!(
+                                        e,
+                                        ConflictFileContent::DeletedByUs { base: None, .. }
+                                    )
+                                    && result_oids[k].1 == Some(oid)
+                            });
+                            if let Some(j) = j {
+                                let (their_path_str, theirs_content) =
+                                    if let ConflictFileContent::DeletedByUs {
+                                        path, theirs, ..
+                                    } = &result[j]
+                                    {
+                                        (path.clone(), theirs.clone())
+                                    } else {
+                                        unreachable!()
+                                    };
+                                let (our_path_str, ours_content) =
+                                    if let ConflictFileContent::DeletedByThem {
+                                        path, ours, ..
+                                    } = &result[i]
+                                    {
+                                        (path.clone(), ours.clone())
+                                    } else {
+                                        unreachable!()
+                                    };
+
+                                // Remove the higher index first to keep i valid.
+                                let (lo, hi) = if i < j { (i, j) } else { (j, i) };
+                                result.remove(hi);
+                                result_oids.remove(hi);
+                                result.remove(lo);
+                                result_oids.remove(lo);
+
+                                result.insert(
+                                    lo,
+                                    ConflictFileContent::RenameRename {
+                                        our_path: our_path_str,
+                                        their_path: their_path_str,
+                                        ours: ours_content,
+                                        theirs: theirs_content,
+                                        base: anc_content,
+                                    },
+                                );
+                                result_oids.insert(lo, (None, None));
+                                orphaned_ancestors.remove(&oid);
+                                // Don't advance i; re-examine the slot in case
+                                // another pair was inserted before lo.
+                                continue;
+                            }
+                        }
+                    }
+                }
+                i += 1;
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Apply user-resolved file contents to complete the merge.
+    ///
+    /// For a direct conflict (conflict markers in the index): writes resolved
+    /// files, stages everything, and commits. `auto_commit` creates a merge
+    /// commit when MERGE_HEAD is present, or a regular commit otherwise.
+    ///
+    /// For a conflict branch merge (on fallback branch): initiates the merge
+    /// first so MERGE_HEAD is set, writes resolved files, commits the merge
+    /// commit on the fallback branch, then fast-forwards the target branch to
+    /// that commit and switches back to it.
+    pub fn complete_conflict_merge(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        if self.is_on_fallback_branch()? {
+            self.complete_conflict_branch_merge(resolved)
+        } else {
+            self.complete_direct_conflict_merge(resolved)
+        }
+    }
+
+    fn complete_direct_conflict_merge(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        // If not yet in Merge state, initiate the merge first.
+        if self.repo.state() != git2::RepositoryState::Merge {
+            let branch_name = self.get_current_branch()?;
+            let remote_ref_name =
+                format!("refs/remotes/{}/{}", self.config.remote_name, branch_name);
+            let remote_ref = self.repo.find_reference(&remote_ref_name).map_err(|_| {
+                SyncError::Other(format!("Remote branch {} not found", branch_name))
+            })?;
+            let remote_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
+            let mut co = git2::build::CheckoutBuilder::new();
+            co.force();
+            self.repo
+                .merge(&[&remote_annotated], None, Some(&mut co))
+                .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
+        }
+
+        self.write_and_commit_resolved(resolved)?;
+        self.repo.cleanup_state()?;
+        Ok(())
+    }
+
+    fn complete_conflict_branch_merge(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        let current_branch = self.get_current_branch()?;
+        let target_branch = self.get_target_branch()?;
+        let remote_target_ref =
+            format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+        let remote_ref = self.repo.find_reference(&remote_target_ref).map_err(|_| {
+            SyncError::Other(format!("Remote target branch {} not found", target_branch))
+        })?;
+        let target_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
+
+        // Initiate the merge to write MERGE_HEAD and the working tree.
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo
+            .merge(&[&target_annotated], None, Some(&mut co))
+            .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
+
+        // Overwrite conflicted files with the user's resolved content.
+        self.write_and_commit_resolved(resolved)?;
+
+        // Get the merge commit OID (now HEAD of the fallback branch).
+        let merge_commit_oid = self
+            .repo
+            .head()?
+            .target()
+            .ok_or_else(|| SyncError::Other("No HEAD after merge commit".to_string()))?;
+
+        // Fast-forward the target branch to the merge commit.
+        let target_ref_name = format!("refs/heads/{}", target_branch);
+        match self.repo.find_reference(&target_ref_name) {
+            Ok(_) => {
+                self.repo.reference(
+                    &target_ref_name,
+                    merge_commit_oid,
+                    true,
+                    "git-sync: ff to resolved merge",
+                )?;
+            }
+            Err(_) => {
+                let commit = self.repo.find_commit(merge_commit_oid)?;
+                self.repo.branch(&target_branch, &commit, false)?;
+            }
+        }
+
+        // Checkout target branch.
+        let object = self.repo.find_object(merge_commit_oid, None)?;
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo.checkout_tree(&object, Some(&mut co))?;
+        self.repo.set_head(&target_ref_name)?;
+
+        // Delete fallback branch (best-effort).
+        if let Ok(mut branch) = self.repo.find_branch(&current_branch, BranchType::Local) {
+            let _ = branch.delete();
+        }
+
+        self.repo.cleanup_state()?;
+        info!(
+            "Conflict branch merge completed, returned to {}",
+            target_branch
+        );
+        Ok(())
+    }
+
+    /// Validate that a resolved file path is relative and does not escape
+    /// the repository root via path traversal (e.g. `../`, absolute paths).
+    fn validate_resolved_path(repo_path: &Path, relative: &str) -> Result<PathBuf> {
+        let path = repo_path.join(relative).normalize();
+        if !path.starts_with(repo_path) {
+            return Err(SyncError::Other(format!(
+                "Resolved file path escapes repository root: {}",
+                relative
+            )));
+        }
+        Ok(path)
+    }
+
+    fn write_resolved_file(repo_path: &Path, file: &ResolvedFileContent) -> Result<()> {
+        match file {
+            ResolvedFileContent::Written { path, content } => {
+                let full = Self::validate_resolved_path(repo_path, path)?;
+                if let Some(p) = full.parent() {
+                    fs::create_dir_all(p)?;
+                }
+                fs::write(&full, content)?;
+            }
+            ResolvedFileContent::Deleted { path } => {
+                let full = Self::validate_resolved_path(repo_path, path)?;
+                if full.exists() {
+                    fs::remove_file(&full)?;
+                }
+            }
+            ResolvedFileContent::RenameResolved {
+                chosen_path,
+                discarded_path,
+                content,
+            } => {
+                let chosen = Self::validate_resolved_path(repo_path, chosen_path)?;
+                if let Some(p) = chosen.parent() {
+                    fs::create_dir_all(p)?;
+                }
+                fs::write(&chosen, content)?;
+                let discarded = Self::validate_resolved_path(repo_path, discarded_path)?;
+                if discarded.exists() {
+                    fs::remove_file(&discarded)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn write_and_commit_resolved(&self, resolved: Vec<ResolvedFileContent>) -> Result<()> {
+        resolved
+            .iter()
+            .try_for_each(|f| Self::write_resolved_file(&self._repo_path, f))?;
+        self.auto_commit()
+    }
+
+    /// Resolve a direct conflict by merging the remote branch and keeping our
+    /// version for every conflicting file.
+    pub fn resolve_keep_mine(&self) -> Result<()> {
+        info!("Resolving conflict: keeping our version");
+        self.do_merge_with_favor(FileFavor::Ours)
+    }
+
+    /// Resolve a direct conflict by merging the remote branch and accepting the
+    /// remote version for every conflicting file.
+    pub fn resolve_accept_remote(&self) -> Result<()> {
+        info!("Resolving conflict: accepting remote version");
+        self.do_merge_with_favor(FileFavor::Theirs)
+    }
+
+    fn do_merge_with_favor(&self, favor: FileFavor) -> Result<()> {
+        let branch_name = self.get_current_branch()?;
+        let remote_ref_name = format!("refs/remotes/{}/{}", self.config.remote_name, branch_name);
+        let remote_ref = self
+            .repo
+            .find_reference(&remote_ref_name)
+            .map_err(|_| SyncError::Other(format!("Remote branch {} not found", branch_name)))?;
+        let remote_annotated = self.repo.reference_to_annotated_commit(&remote_ref)?;
+
+        let mut merge_opts = MergeOptions::new();
+        merge_opts.file_favor(favor);
+
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo
+            .merge(&[&remote_annotated], Some(&mut merge_opts), Some(&mut co))
+            .map_err(|e| SyncError::Other(format!("Merge failed: {}", e)))?;
+
+        // Commit the merge result (MERGE_HEAD makes it a merge commit), using the
+        // same safe staging logic as `auto_commit`.
+        self.auto_commit()?;
+        self.repo.cleanup_state()?;
+
+        info!("Conflict resolved");
+        Ok(())
+    }
+
+    /// Abandon the conflict branch: reset back to the remote target branch,
+    /// discarding the local fallback commits. The fallback branch is deleted
+    /// locally (it may still exist on the remote as a record).
+    pub fn abandon_conflict_branch(&self) -> Result<()> {
+        let current_branch = self.get_current_branch()?;
+        if !current_branch.starts_with(FALLBACK_BRANCH_PREFIX) {
+            return Err(SyncError::Other("Not on a conflict branch".to_string()));
+        }
+
+        let target_branch = self.get_target_branch()?;
+        let remote_target_ref =
+            format!("refs/remotes/{}/{}", self.config.remote_name, target_branch);
+        let remote_ref = self.repo.find_reference(&remote_target_ref).map_err(|_| {
+            SyncError::Other(format!("Remote target branch {} not found", target_branch))
+        })?;
+        let remote_oid = remote_ref
+            .target()
+            .ok_or_else(|| SyncError::Other("Remote target has no OID".to_string()))?;
+
+        let target_ref_name = format!("refs/heads/{}", target_branch);
+
+        // Update or create the local target branch at the remote OID.
+        match self.repo.find_reference(&target_ref_name) {
+            Ok(_) => {
+                self.repo.reference(
+                    &target_ref_name,
+                    remote_oid,
+                    true,
+                    "git-sync: reset to remote",
+                )?;
+            }
+            Err(_) => {
+                let remote_commit = self.repo.find_commit(remote_oid)?;
+                self.repo.branch(&target_branch, &remote_commit, false)?;
+            }
+        }
+
+        // Checkout the target branch.
+        let object = self.repo.find_object(remote_oid, None)?;
+        let mut co = git2::build::CheckoutBuilder::new();
+        co.force();
+        self.repo.checkout_tree(&object, Some(&mut co))?;
+        self.repo.set_head(&target_ref_name)?;
+
+        // Delete the fallback branch (best-effort).
+        if let Ok(mut branch) = self.repo.find_branch(&current_branch, BranchType::Local) {
+            let _ = branch.delete();
+        }
+
+        info!(
+            "Abandoned conflict branch {}, returned to {}",
+            current_branch, target_branch
+        );
+        Ok(())
+    }
+
+    /// Return a list of conflicted file paths.
+    ///
+    /// For a direct conflict (rebase was attempted and aborted, conflict markers
+    /// remain in the index): reads staged conflict entries and working-tree
+    /// conflict status flags.
+    ///
+    /// For a conflict branch merge (user's work was committed to a fallback
+    /// branch): performs an in-memory merge against the remote target to
+    /// identify which files would conflict.
+    pub fn get_conflict_info(&self) -> Result<Vec<String>> {
+        let mut paths: Vec<String> = Vec::new();
+
+        // --- Direct conflict: read conflict markers from working tree / index ---
+        // Check working-tree status flags.
+        let mut status_opts = StatusOptions::new();
+        status_opts.include_untracked(false);
+        let statuses = self.repo.statuses(Some(&mut status_opts))?;
+        for entry in statuses.iter() {
+            if entry.status().is_conflicted() {
+                paths.push(entry.path().unwrap_or("<unknown>").to_string());
+            }
+        }
+
+        // Also scan the index for staged conflict entries (stage 1/2/3),
+        // which may not always surface as STATUS_CONFLICTED above.
+        let index = self.repo.index()?;
+        if index.has_conflicts() {
+            for conflict in index.conflicts()?.flatten() {
+                let path = Self::conflict_entry_path(conflict);
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+
+        if !paths.is_empty() {
+            return Ok(paths);
+        }
+
+        // --- Conflict branch merge: in-memory merge to find would-be conflicts ---
+        // We're on a fallback branch; the working tree has no markers yet.
+        if let Some(virtual_index) = self.build_virtual_merge_index()? {
+            if virtual_index.has_conflicts() {
+                for conflict in virtual_index.conflicts()?.flatten() {
+                    let path = Self::conflict_entry_path(conflict);
+                    if !paths.contains(&path) {
+                        paths.push(path);
+                    }
+                }
+            }
+        }
+
+        Ok(paths)
     }
 
     /// Main sync operation
