@@ -40,6 +40,10 @@ mod tests {
                 commands::validate_repo_path,
                 commands::pick_folder,
                 commands::get_log_history,
+                commands::get_conflict_info,
+                commands::resolve_conflict,
+                commands::get_conflict_files_content,
+                commands::complete_conflict_merge,
             ])
             .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 
@@ -115,6 +119,10 @@ pub fn run() {
             commands::validate_repo_path,
             commands::pick_folder,
             commands::get_log_history,
+            commands::get_conflict_info,
+            commands::resolve_conflict,
+            commands::get_conflict_files_content,
+            commands::complete_conflict_merge,
         ])
         .events(collect_events![StatusUpdateEvent, LogEntryEvent]);
 
@@ -134,6 +142,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(AppState {
             config,
             worker_tx: cmd_tx,
