@@ -182,8 +182,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let mut rx = status_rx_forwarder;
             tauri::async_runtime::spawn(async move {
-                let mut prev_error_keys: Vec<Option<String>> =
-                    vec![None; rx.borrow().repos.len()];
+                let mut prev_error_keys: Vec<Option<String>> = vec![None; rx.borrow().repos.len()];
                 loop {
                     if rx.changed().await.is_err() {
                         break;
@@ -311,10 +310,9 @@ fn notification_text(repo_path: &str, error: &SyncErrorPayload) -> (String, Stri
         .to_string();
 
     match error {
-        SyncErrorPayload::Conflict { message } => (
-            format!("{}: Merge conflict", repo_name),
-            message.clone(),
-        ),
+        SyncErrorPayload::Conflict { message } => {
+            (format!("{}: Merge conflict", repo_name), message.clone())
+        }
         SyncErrorPayload::ConflictBranch { branch, message } => (
             format!("{}: Conflicts saved to branch", repo_name),
             format!("{} — {}", branch, message),
@@ -323,10 +321,9 @@ fn notification_text(repo_path: &str, error: &SyncErrorPayload) -> (String, Stri
             format!("{}: Authentication failed", repo_name),
             message.clone(),
         ),
-        SyncErrorPayload::Network { message } => (
-            format!("{}: Network error", repo_name),
-            message.clone(),
-        ),
+        SyncErrorPayload::Network { message } => {
+            (format!("{}: Network error", repo_name), message.clone())
+        }
         SyncErrorPayload::Config { message } => (
             format!("{}: Configuration error", repo_name),
             message.clone(),
@@ -335,9 +332,8 @@ fn notification_text(repo_path: &str, error: &SyncErrorPayload) -> (String, Stri
             format!("{}: Repository needs attention", repo_name),
             message.clone(),
         ),
-        SyncErrorPayload::Unknown { message } => (
-            format!("{}: Sync error", repo_name),
-            message.clone(),
-        ),
+        SyncErrorPayload::Unknown { message } => {
+            (format!("{}: Sync error", repo_name), message.clone())
+        }
     }
 }
