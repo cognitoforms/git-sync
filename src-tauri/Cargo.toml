@@ -21,6 +21,7 @@ git-sync-lib    = { path = "../crates/git-sync-lib" }
 tauri                 = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog       = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-opener       = "2"
 tauri-plugin-os           = "2"
 tauri-plugin-process      = "2"
 tauri-plugin-updater      = "2"

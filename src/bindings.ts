@@ -14,6 +14,10 @@ export const commands = {
 	validateRepoPath: (path: string) => __TAURI_INVOKE<boolean>("validate_repo_path", { path }),
 	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	getLogHistory: (repo: string | null) => __TAURI_INVOKE<FrontendLogEntry[]>("get_log_history", { repo }),
+	getConflictInfo: (index: number) => typedError<ConflictInfoPayload, string>(__TAURI_INVOKE("get_conflict_info", { index })),
+	resolveConflict: (index: number, strategy: ConflictResolutionStrategyPayload) => typedError<null, string>(__TAURI_INVOKE("resolve_conflict", { index, strategy })),
+	getConflictFilesContent: (index: number) => typedError<ConflictFileContentPayload[], string>(__TAURI_INVOKE("get_conflict_files_content", { index })),
+	completeConflictMerge: (index: number, resolved: ResolvedFilePayload[]) => typedError<null, string>(__TAURI_INVOKE("complete_conflict_merge", { index, resolved })),
 };
 
 /** Events */
@@ -26,6 +30,17 @@ export const events = {
 export type AppStatus = {
 	repos: RepoStatus[],
 };
+
+export type ConflictFileContentPayload = { type: "content"; path: string; their_path: string | null; ours: string; theirs: string; base: string | null } | { type: "deleted_by_us"; path: string; theirs: string; base: string | null } | { type: "deleted_by_them"; path: string; ours: string; base: string | null } | { type: "rename_rename"; our_path: string; their_path: string; ours: string; theirs: string; base: string | null };
+
+export type ConflictInfoPayload = {
+	conflicted_files: string[],
+	on_conflict_branch: boolean,
+	conflict_branch_name: string | null,
+	target_branch: string,
+};
+
+export type ConflictResolutionStrategyPayload = "keep_mine" | "accept_remote" | "abandon_conflict_branch";
 
 export type DesktopConfig = {
 	global?: GlobalSettings,
@@ -75,6 +90,8 @@ export type RepoStatus = {
 	error: SyncErrorPayload | null,
 	last_sync_time: string | null,
 };
+
+export type ResolvedFilePayload = { type: "written"; path: string; content: string } | { type: "deleted"; path: string } | { type: "rename_resolved"; chosen_path: string; discarded_path: string; content: string };
 
 export type StatusUpdateEvent = AppStatus;
 
