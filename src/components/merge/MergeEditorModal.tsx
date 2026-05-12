@@ -14,6 +14,10 @@ import {
 	ResizablePanel,
 	ResizableHandle,
 } from "@/components/ui/resizable";
+import type {
+	ConflictFileContentPayload,
+	ResolvedFilePayload,
+} from "@/bindings";
 import { MergeEditorFileTree } from "./MergeEditorFileTree";
 import { MergeConflictView } from "./MergeConflictView";
 
@@ -25,7 +29,21 @@ interface Props {
 
 // ── Resolution state ──────────────────────────────────────────────────────────
 
-type Resolution = { content: string; deleted: boolean };
+export type Resolution =
+	| { kind: "written"; content: string }
+	| { kind: "deleted" }
+	| {
+			kind: "rename_resolved";
+			chosenPath: string;
+			discardedPath: string;
+			content: string;
+	  };
+
+// Returns the stable key used to identify a conflict file across maps.
+// rename_rename has no single `path` field, so we use our_path.
+function fileKey(f: ConflictFileContentPayload): string {
+	return f.type === "rename_rename" ? f.our_path : f.path;
+}
 
 export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const { data: files, isLoading } = useConflictFilesContent(repoIdx, isOpen);
@@ -39,9 +57,9 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 		Record<string, boolean>
 	>({});
 
-	const filePaths = files?.map((f) => f.path) ?? [];
+	const filePaths = files?.map(fileKey) ?? [];
 	const currentFile =
-		files?.find((f) => f.path === selectedPath) ?? files?.[0] ?? null;
+		files?.find((f) => fileKey(f) === selectedPath) ?? files?.[0] ?? null;
 
 	const resolvedCount = useMemo(
 		() => filePaths.filter((p) => fileResolvedMap[p] === true).length,
@@ -50,17 +68,57 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 	const allResolved =
 		files != null && files.length > 0 && resolvedCount === files.length;
 
+	const currentRes =
+		currentFile != null ? resolvedMap[fileKey(currentFile)] : undefined;
+
 	async function handleCompleteMerge() {
 		if (!files) return;
-		const resolved = files.map((f) => {
-			const res = resolvedMap[f.path];
+		const resolved: ResolvedFilePayload[] = files.map((f) => {
+			const key = fileKey(f);
+			const res = resolvedMap[key];
 			if (!res) {
-				return { path: f.path, content: f.base ?? "", deleted: false };
+				const fallbackContent =
+					f.type === "content" || f.type === "deleted_by_them"
+						? (f.base ?? "")
+						: "";
+				return { type: "written", path: key, content: fallbackContent };
 			}
-			return { path: f.path, content: res.content, deleted: res.deleted };
+			if (res.kind === "written") {
+				return { type: "written", path: key, content: res.content };
+			}
+			if (res.kind === "deleted") {
+				return { type: "deleted", path: key };
+			}
+			return {
+				type: "rename_resolved",
+				chosen_path: res.chosenPath,
+				discarded_path: res.discardedPath,
+				content: res.content,
+			};
 		});
 		await completeMerge.mutateAsync({ index: repoIdx, resolved });
 		onClose();
+	}
+
+	function handleChoosePath(
+		f: Extract<ConflictFileContentPayload, { type: "rename_rename" }>,
+		chosen: string,
+		discarded: string,
+	) {
+		const content = chosen === f.our_path ? f.ours : f.theirs;
+		setResolvedMap((m) => ({
+			...m,
+			[f.our_path]: {
+				kind: "rename_resolved",
+				chosenPath: chosen,
+				discardedPath: discarded,
+				content,
+			},
+		}));
+		// For pure renames (identical content), mark resolved immediately.
+		if (f.ours === f.theirs) {
+			setFileResolvedMap((m) => ({ ...m, [f.our_path]: true }));
+		}
 	}
 
 	return (
@@ -128,19 +186,35 @@ export default function MergeEditorModal({ isOpen, onClose, repoIdx }: Props) {
 						{currentFile != null && (
 							<MergeConflictView
 								file={currentFile}
-								resolvedContent={resolvedMap[currentFile.path]?.content}
+								resolvedContent={
+									currentRes?.kind === "written" ||
+									currentRes?.kind === "rename_resolved"
+										? currentRes.content
+										: undefined
+								}
+								isDeleted={currentRes?.kind === "deleted"}
+								chosenPath={
+									currentRes?.kind === "rename_resolved"
+										? currentRes.chosenPath
+										: undefined
+								}
 								onResolvedChange={(res) =>
 									setResolvedMap((m) => ({
 										...m,
-										[currentFile.path]: res,
+										[fileKey(currentFile)]: res,
 									}))
 								}
 								onConflictsResolvedChange={(resolved) =>
 									setFileResolvedMap((m) => ({
 										...m,
-										[currentFile.path]: resolved,
+										[fileKey(currentFile)]: resolved,
 									}))
 								}
+								onChoosePath={(chosen, discarded) => {
+									if (currentFile.type === "rename_rename") {
+										handleChoosePath(currentFile, chosen, discarded);
+									}
+								}}
 							/>
 						)}
 					</ResizablePanel>

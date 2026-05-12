@@ -31,15 +31,7 @@ export type AppStatus = {
 	repos: RepoStatus[],
 };
 
-export type ConflictFileContentPayload = {
-	path: string,
-	// Their path when different from `path` (rename conflict).
-	their_path: string | null,
-	ours: string | null,
-	theirs: string | null,
-	base: string | null,
-	conflict_kind: ConflictKindPayload,
-};
+export type ConflictFileContentPayload = { type: "content"; path: string; their_path: string | null; ours: string; theirs: string; base: string | null } | { type: "deleted_by_us"; path: string; theirs: string; base: string | null } | { type: "deleted_by_them"; path: string; ours: string; base: string | null } | { type: "rename_rename"; our_path: string; their_path: string; ours: string; theirs: string; base: string | null };
 
 export type ConflictInfoPayload = {
 	conflicted_files: string[],
@@ -47,8 +39,6 @@ export type ConflictInfoPayload = {
 	conflict_branch_name: string | null,
 	target_branch: string,
 };
-
-export type ConflictKindPayload = { type: "content_conflict" } | { type: "deleted_by_us" } | { type: "deleted_by_them" };
 
 export type ConflictResolutionStrategyPayload = "keep_mine" | "accept_remote" | "abandon_conflict_branch";
 
@@ -101,11 +91,7 @@ export type RepoStatus = {
 	last_sync_time: string | null,
 };
 
-export type ResolvedFilePayload = {
-	path: string,
-	content: string,
-	deleted: boolean,
-};
+export type ResolvedFilePayload = { type: "written"; path: string; content: string } | { type: "deleted"; path: string } | { type: "rename_resolved"; chosen_path: string; discarded_path: string; content: string };
 
 export type StatusUpdateEvent = AppStatus;
 

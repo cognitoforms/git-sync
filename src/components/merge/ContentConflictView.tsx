@@ -1,8 +1,10 @@
 import { ConflictFileContentPayload } from "@/bindings";
 import MisMergeEditor from "./MisMergeEditor";
 
+type ContentFile = Extract<ConflictFileContentPayload, { type: "content" }>;
+
 interface ContentConflictViewProps {
-	file: ConflictFileContentPayload;
+	file: ContentFile;
 	resolvedContent: string | undefined;
 	onCtrChange: (content: string) => void;
 	onConflictsResolvedChange: (resolved: boolean) => void;
@@ -28,9 +30,9 @@ export function ContentConflictView({
 			<div className="flex-1 overflow-auto">
 				<MisMergeEditor
 					key={file.path}
-					lhs={file.theirs ?? ""}
+					lhs={file.theirs}
 					ctr={resolvedContent ?? file.base ?? ""}
-					rhs={file.ours ?? ""}
+					rhs={file.ours}
 					onCtrChange={onCtrChange}
 					onConflictsResolvedChange={onConflictsResolvedChange}
 					lhsEditable={false}

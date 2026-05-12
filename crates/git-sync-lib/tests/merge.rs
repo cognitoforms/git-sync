@@ -1,6 +1,6 @@
 use git_sync_lib::{
-    CommandGitTransport, ConflictKind, RepositorySynchronizer, ResolvedFileContent, SyncConfig,
-    FALLBACK_BRANCH_PREFIX,
+    CommandGitTransport, ConflictFileContent, RepositorySynchronizer, ResolvedFileContent,
+    SyncConfig, FALLBACK_BRANCH_PREFIX,
 };
 use std::fs;
 use std::path::Path;
@@ -57,6 +57,15 @@ fn current_branch(dir: &Path) -> String {
         .output()
         .unwrap();
     String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn conflict_path(f: &ConflictFileContent) -> &str {
+    match f {
+        ConflictFileContent::Content { path, .. }
+        | ConflictFileContent::DeletedByUs { path, .. }
+        | ConflictFileContent::DeletedByThem { path, .. } => path,
+        ConflictFileContent::RenameRename { our_path, .. } => our_path,
+    }
 }
 
 fn make_syncer(repo_path: &Path, branch_name: &str, target_branch: &str) -> RepositorySynchronizer {
@@ -191,11 +200,20 @@ fn direct_conflict_extracts_ours_theirs_base() {
 
     let files = s.get_conflict_files_content().unwrap();
     assert_eq!(files.len(), 1);
-    let f = &files[0];
-    assert_eq!(f.path, "file.txt");
-    assert_eq!(f.ours.as_deref(), Some(OURS_CONTENT));
-    assert_eq!(f.theirs.as_deref(), Some(THEIRS_CONTENT));
-    assert_eq!(f.base.as_deref(), Some(BASE_CONTENT));
+    let ConflictFileContent::Content {
+        path,
+        ours,
+        theirs,
+        base,
+        ..
+    } = &files[0]
+    else {
+        panic!("expected Content conflict");
+    };
+    assert_eq!(path, "file.txt");
+    assert_eq!(ours.as_str(), OURS_CONTENT);
+    assert_eq!(theirs.as_str(), THEIRS_CONTENT);
+    assert_eq!(base.as_deref(), Some(BASE_CONTENT));
 }
 
 #[test]
@@ -231,7 +249,7 @@ fn direct_conflict_extracts_multiple_files() {
         files.len(),
         2,
         "expected 2 conflicting files, got: {:?}",
-        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+        files.iter().map(conflict_path).collect::<Vec<_>>()
     );
 }
 
@@ -243,11 +261,20 @@ fn fallback_branch_extracts_via_in_memory_merge() {
 
     let files = s.get_conflict_files_content().unwrap();
     assert_eq!(files.len(), 1);
-    let f = &files[0];
-    assert_eq!(f.path, "file.txt");
-    assert_eq!(f.ours.as_deref(), Some(OURS_CONTENT));
-    assert_eq!(f.theirs.as_deref(), Some(THEIRS_CONTENT));
-    assert_eq!(f.base.as_deref(), Some(BASE_CONTENT));
+    let ConflictFileContent::Content {
+        path,
+        ours,
+        theirs,
+        base,
+        ..
+    } = &files[0]
+    else {
+        panic!("expected Content conflict");
+    };
+    assert_eq!(path, "file.txt");
+    assert_eq!(ours.as_str(), OURS_CONTENT);
+    assert_eq!(theirs.as_str(), THEIRS_CONTENT);
+    assert_eq!(base.as_deref(), Some(BASE_CONTENT));
 }
 
 // ---------------------------------------------------------------------------
@@ -294,10 +321,9 @@ fn direct_complete_merge_with_ours_content() {
     let local = setup_direct_conflict(&tmp);
     let s = make_syncer(&local, "main", "main");
 
-    s.complete_conflict_merge(vec![ResolvedFileContent {
+    s.complete_conflict_merge(vec![ResolvedFileContent::Written {
         path: "file.txt".to_string(),
         content: OURS_CONTENT.to_string(),
-        deleted: false,
     }])
     .unwrap();
 
@@ -314,10 +340,9 @@ fn direct_complete_merge_with_custom_content() {
     let local = setup_direct_conflict(&tmp);
     let s = make_syncer(&local, "main", "main");
 
-    s.complete_conflict_merge(vec![ResolvedFileContent {
+    s.complete_conflict_merge(vec![ResolvedFileContent::Written {
         path: "file.txt".to_string(),
         content: "custom\n".to_string(),
-        deleted: false,
     }])
     .unwrap();
 
@@ -338,10 +363,9 @@ fn fallback_complete_merge_lands_on_target() {
     let local = setup_fallback_branch(&tmp);
     let s = make_syncer(&local, FALLBACK_BRANCH, "main");
 
-    s.complete_conflict_merge(vec![ResolvedFileContent {
+    s.complete_conflict_merge(vec![ResolvedFileContent::Written {
         path: "file.txt".to_string(),
         content: "merged\n".to_string(),
-        deleted: false,
     }])
     .unwrap();
 
@@ -359,10 +383,9 @@ fn fallback_complete_merge_creates_merge_commit() {
     let local = setup_fallback_branch(&tmp);
     let s = make_syncer(&local, FALLBACK_BRANCH, "main");
 
-    s.complete_conflict_merge(vec![ResolvedFileContent {
+    s.complete_conflict_merge(vec![ResolvedFileContent::Written {
         path: "file.txt".to_string(),
         content: "merged\n".to_string(),
-        deleted: false,
     }])
     .unwrap();
 
@@ -504,18 +527,11 @@ fn test_get_conflict_files_content_delete_by_us() {
 
     let files = s.get_conflict_files_content().unwrap();
     assert_eq!(files.len(), 1);
-    let f = &files[0];
-    assert_eq!(f.path, "file.txt");
-    assert_eq!(f.conflict_kind, ConflictKind::DeletedByUs);
-    assert!(
-        f.ours.is_none(),
-        "ours should be None (we deleted the file)"
-    );
-    assert_eq!(
-        f.theirs.as_deref(),
-        Some(THEIRS_CONTENT),
-        "theirs should have the modified content"
-    );
+    let ConflictFileContent::DeletedByUs { path, theirs, .. } = &files[0] else {
+        panic!("expected DeletedByUs conflict");
+    };
+    assert_eq!(path, "file.txt");
+    assert_eq!(theirs.as_str(), THEIRS_CONTENT);
 }
 
 #[test]
@@ -526,18 +542,11 @@ fn test_get_conflict_files_content_delete_by_them() {
 
     let files = s.get_conflict_files_content().unwrap();
     assert_eq!(files.len(), 1);
-    let f = &files[0];
-    assert_eq!(f.path, "file.txt");
-    assert_eq!(f.conflict_kind, ConflictKind::DeletedByThem);
-    assert_eq!(
-        f.ours.as_deref(),
-        Some(OURS_CONTENT),
-        "ours should have the modified content"
-    );
-    assert!(
-        f.theirs.is_none(),
-        "theirs should be None (they deleted the file)"
-    );
+    let ConflictFileContent::DeletedByThem { path, ours, .. } = &files[0] else {
+        panic!("expected DeletedByThem conflict");
+    };
+    assert_eq!(path, "file.txt");
+    assert_eq!(ours.as_str(), OURS_CONTENT);
 }
 
 #[test]
@@ -547,10 +556,9 @@ fn test_complete_merge_keep_file_after_delete_by_us() {
     let s = make_syncer(&local, "main", "main");
 
     // Resolve by keeping the file with theirs content.
-    s.complete_conflict_merge(vec![ResolvedFileContent {
+    s.complete_conflict_merge(vec![ResolvedFileContent::Written {
         path: "file.txt".to_string(),
         content: THEIRS_CONTENT.to_string(),
-        deleted: false,
     }])
     .unwrap();
 
@@ -572,10 +580,8 @@ fn test_complete_merge_delete_file_after_delete_by_us() {
     let s = make_syncer(&local, "main", "main");
 
     // Resolve by accepting the deletion.
-    s.complete_conflict_merge(vec![ResolvedFileContent {
+    s.complete_conflict_merge(vec![ResolvedFileContent::Deleted {
         path: "file.txt".to_string(),
-        content: String::new(),
-        deleted: true,
     }])
     .unwrap();
 
@@ -587,6 +593,113 @@ fn test_complete_merge_delete_file_after_delete_by_us() {
         head_is_clean(&local),
         "working tree should be clean after merge"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Group 5 — Rename/Rename conflicts
+// ---------------------------------------------------------------------------
+
+/// Sets up a rename/rename conflict: local renames `file.txt → ours.txt`,
+/// remote renames `file.txt → theirs.txt`.  After fetch + attempted merge,
+/// the index is left in conflict state with a RenameRename entry.
+fn setup_rename_rename_conflict(tmp: &TempDir) -> std::path::PathBuf {
+    let bare = tmp.path().join("bare_rr");
+    let helper = tmp.path().join("helper_rr");
+    let local = tmp.path().join("local_rr");
+
+    run_git(tmp.path(), &["init", "--bare", "bare_rr"]);
+    run_git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    run_git(tmp.path(), &["clone", "bare_rr", "helper_rr"]);
+    setup_git_user(&helper);
+    run_git(&helper, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    fs::write(helper.join("file.txt"), BASE_CONTENT).unwrap();
+    run_git(&helper, &["add", "file.txt"]);
+    run_git(&helper, &["commit", "-m", "initial"]);
+    run_git(&helper, &["push", "origin", "HEAD:main"]);
+
+    run_git(tmp.path(), &["clone", "bare_rr", "local_rr"]);
+    setup_git_user(&local);
+    run_git(&local, &["mv", "file.txt", "ours.txt"]);
+    run_git(&local, &["commit", "-m", "rename to ours"]);
+
+    run_git(&helper, &["mv", "file.txt", "theirs.txt"]);
+    run_git(&helper, &["commit", "-m", "rename to theirs"]);
+    run_git(&helper, &["push", "origin", "main"]);
+
+    run_git(&local, &["fetch", "origin"]);
+    let _ = Command::new("git")
+        .args(["merge", "--no-edit", "origin/main"])
+        .current_dir(&local)
+        .output()
+        .unwrap();
+
+    local
+}
+
+#[test]
+fn rename_rename_conflict_detected() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_rename_rename_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    let files = s.get_conflict_files_content().unwrap();
+    assert_eq!(files.len(), 1);
+    let ConflictFileContent::RenameRename {
+        our_path,
+        their_path,
+        ours,
+        theirs,
+        ..
+    } = &files[0]
+    else {
+        panic!("expected RenameRename conflict, got: {:?}", files[0]);
+    };
+    assert_eq!(our_path, "ours.txt");
+    assert_eq!(their_path, "theirs.txt");
+    assert_eq!(ours.as_str(), BASE_CONTENT);
+    assert_eq!(theirs.as_str(), BASE_CONTENT);
+}
+
+#[test]
+fn rename_rename_resolve_choose_ours() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_rename_rename_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    s.complete_conflict_merge(vec![ResolvedFileContent::RenameResolved {
+        chosen_path: "ours.txt".to_string(),
+        discarded_path: "theirs.txt".to_string(),
+        content: BASE_CONTENT.to_string(),
+    }])
+    .unwrap();
+
+    assert!(local.join("ours.txt").exists(), "ours.txt should exist");
+    assert!(
+        !local.join("theirs.txt").exists(),
+        "theirs.txt should be gone"
+    );
+    assert_eq!(read_file(&local, "ours.txt"), BASE_CONTENT);
+    assert!(head_is_clean(&local), "working tree should be clean");
+}
+
+#[test]
+fn rename_rename_resolve_choose_theirs() {
+    let tmp = TempDir::new().unwrap();
+    let local = setup_rename_rename_conflict(&tmp);
+    let s = make_syncer(&local, "main", "main");
+
+    s.complete_conflict_merge(vec![ResolvedFileContent::RenameResolved {
+        chosen_path: "theirs.txt".to_string(),
+        discarded_path: "ours.txt".to_string(),
+        content: BASE_CONTENT.to_string(),
+    }])
+    .unwrap();
+
+    assert!(local.join("theirs.txt").exists(), "theirs.txt should exist");
+    assert!(!local.join("ours.txt").exists(), "ours.txt should be gone");
+    assert_eq!(read_file(&local, "theirs.txt"), BASE_CONTENT);
+    assert!(head_is_clean(&local), "working tree should be clean");
 }
 
 // ---------------------------------------------------------------------------

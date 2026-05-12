@@ -111,39 +111,53 @@ pub enum UnhandledFileState {
     Conflicted { path: String },
 }
 
-/// The kind of conflict detected for a file.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConflictKind {
-    /// Both sides modified the file; standard 3-way merge.
-    ContentConflict,
-    /// Our side removed the file; their side has content.
-    DeletedByUs,
-    /// Their side removed the file; our side has content.
-    DeletedByThem,
-}
-
-/// 3-way file content for merging.
+/// 3-way file content for merging, shaped by conflict type.
 #[derive(Debug)]
-pub struct ConflictFileContent {
-    pub path: String,
-    /// Their path when different from `path` (rename conflict).
-    pub their_path: Option<String>,
-    /// None when our side deleted the file.
-    pub ours: Option<String>,
-    /// None when their side deleted the file.
-    pub theirs: Option<String>,
-    /// None when there is no common ancestor blob.
-    pub base: Option<String>,
-    pub conflict_kind: ConflictKind,
+pub enum ConflictFileContent {
+    /// Both sides modified the file (standard 3-way merge).
+    /// `their_path` is set when their side also renamed the file.
+    Content {
+        path: String,
+        their_path: Option<String>,
+        ours: String,
+        theirs: String,
+        base: Option<String>,
+    },
+    /// Our side deleted the file; their side modified it.
+    DeletedByUs {
+        path: String,
+        theirs: String,
+        base: Option<String>,
+    },
+    /// Their side deleted the file; our side modified it.
+    DeletedByThem {
+        path: String,
+        ours: String,
+        base: Option<String>,
+    },
+    /// Both sides renamed the file to different paths. Content may also differ.
+    RenameRename {
+        our_path: String,
+        their_path: String,
+        ours: String,
+        theirs: String,
+        base: Option<String>,
+    },
 }
 
-/// A single file's resolved content.
+/// Resolution for a single conflict file.
 #[derive(Debug, Clone)]
-pub struct ResolvedFileContent {
-    pub path: String,
-    pub content: String,
-    /// When true, delete the file instead of writing content.
-    pub deleted: bool,
+pub enum ResolvedFileContent {
+    /// Write content to path (content conflicts; keep-side of delete conflicts).
+    Written { path: String, content: String },
+    /// Delete the file (accept-deletion side of delete conflicts).
+    Deleted { path: String },
+    /// Rename/rename: write to chosen_path, delete discarded_path.
+    RenameResolved {
+        chosen_path: String,
+        discarded_path: String,
+        content: String,
+    },
 }
 
 /// State for tracking fallback branch return attempts (in-memory only)
@@ -1036,7 +1050,23 @@ impl RepositorySynchronizer {
         &self,
         index: &git2::Index,
     ) -> Result<Vec<ConflictFileContent>> {
-        let mut result = Vec::new();
+        use std::collections::HashMap;
+
+        // For rename/rename conflicts, libgit2 yields the ancestor (stage 1),
+        // our rename target (stage 2), and their rename target (stage 3) as
+        // three *separate* conflict entries, each with a different path.
+        // We detect them in a two-pass approach:
+        //
+        // Pass 1 — collect normal conflicts; stash ancestor-only entries.
+        // Pass 2 — promote matching (DeletedByThem, DeletedByUs) pairs whose
+        //          blob OIDs match a stashed ancestor into RenameRename.
+
+        // Stashed ancestor-only entries: OID → (ancestor_path, base_content).
+        let mut orphaned_ancestors: HashMap<git2::Oid, (String, Option<String>)> = HashMap::new();
+        // Parallel OID tracking for entries pushed to `result`.
+        let mut result: Vec<ConflictFileContent> = Vec::new();
+        let mut result_oids: Vec<(Option<git2::Oid>, Option<git2::Oid>)> = Vec::new();
+
         let conflicts = index.conflicts()?;
         for conflict in conflicts.flatten() {
             let our_path = conflict
@@ -1047,20 +1077,28 @@ impl RepositorySynchronizer {
                 .their
                 .as_ref()
                 .map(|e| String::from_utf8_lossy(&e.path).to_string());
-            let ancestor_path = conflict
+            let ancestor_path_opt = conflict
                 .ancestor
                 .as_ref()
                 .map(|e| String::from_utf8_lossy(&e.path).to_string());
             let path = our_path
                 .clone()
                 .or_else(|| their_path_raw.clone())
-                .or(ancestor_path)
+                .or_else(|| ancestor_path_opt.clone())
                 .unwrap_or_default();
             if path.is_empty() {
                 continue;
             }
             // Populated when their side renamed the file relative to ours.
             let their_path = their_path_raw.filter(|p| p != &path);
+            // RenameRename (single-entry variant): both sides changed the path
+            // away from the ancestor *and* libgit2 grouped all three stages
+            // into one conflict.
+            let our_renamed = our_path.as_deref() != ancestor_path_opt.as_deref();
+            let they_renamed = their_path.is_some();
+
+            let our_oid = conflict.our.as_ref().map(|e| e.id);
+            let their_oid = conflict.their.as_ref().map(|e| e.id);
 
             let ours = conflict
                 .our
@@ -1082,21 +1120,126 @@ impl RepositorySynchronizer {
                 .and_then(|e| self.repo.find_blob(e.id).ok())
                 .map(|b| String::from_utf8_lossy(b.content()).into_owned());
 
-            let conflict_kind = match (&ours, &theirs) {
-                (None, _) => ConflictKind::DeletedByUs,
-                (_, None) => ConflictKind::DeletedByThem,
-                _ => ConflictKind::ContentConflict,
+            let entry = match (ours, theirs) {
+                // Ancestor-only: stage-1 entry orphaned by a rename/rename.
+                // Stash it; pass 2 will correlate it with the ours/theirs entries.
+                (None, None) => {
+                    if let Some(ref anc) = conflict.ancestor {
+                        if !anc.id.is_zero() {
+                            orphaned_ancestors.insert(anc.id, (path, base));
+                        }
+                    }
+                    continue;
+                }
+                (None, Some(theirs_content)) => ConflictFileContent::DeletedByUs {
+                    path,
+                    theirs: theirs_content,
+                    base,
+                },
+                (Some(ours_content), None) => ConflictFileContent::DeletedByThem {
+                    path,
+                    ours: ours_content,
+                    base,
+                },
+                (Some(ours_content), Some(theirs_content)) if our_renamed && they_renamed => {
+                    ConflictFileContent::RenameRename {
+                        our_path: path,
+                        their_path: their_path.unwrap(), // guaranteed Some when they_renamed
+                        ours: ours_content,
+                        theirs: theirs_content,
+                        base,
+                    }
+                }
+                (Some(ours_content), Some(theirs_content)) => ConflictFileContent::Content {
+                    path,
+                    their_path,
+                    ours: ours_content,
+                    theirs: theirs_content,
+                    base,
+                },
             };
-
-            result.push(ConflictFileContent {
-                path,
-                their_path,
-                ours,
-                theirs,
-                base,
-                conflict_kind,
-            });
+            result.push(entry);
+            result_oids.push((our_oid, their_oid));
         }
+
+        // Pass 2 — promote pairs into RenameRename.
+        //
+        // For a pure rename (identical content) the ancestor, ours, and theirs
+        // blobs share the same OID, making correlation unambiguous.  For a
+        // rename+content conflict the OIDs differ; we leave those as-is.
+        if !orphaned_ancestors.is_empty() {
+            let mut i = 0;
+            while i < result.len() {
+                // Look for an ours-only entry whose OID matches an orphaned ancestor.
+                let our_oid = result_oids[i].0;
+                let is_ours_only = matches!(
+                    &result[i],
+                    ConflictFileContent::DeletedByThem { base: None, .. }
+                );
+                if is_ours_only {
+                    if let Some(oid) = our_oid {
+                        if let Some((_anc_path, anc_content)) =
+                            orphaned_ancestors.get(&oid).cloned()
+                        {
+                            // Find a theirs-only entry with the same OID.
+                            let j = result.iter().enumerate().position(|(k, e)| {
+                                k != i
+                                    && matches!(
+                                        e,
+                                        ConflictFileContent::DeletedByUs { base: None, .. }
+                                    )
+                                    && result_oids[k].1 == Some(oid)
+                            });
+                            if let Some(j) = j {
+                                let (their_path_str, theirs_content) =
+                                    if let ConflictFileContent::DeletedByUs {
+                                        path, theirs, ..
+                                    } = &result[j]
+                                    {
+                                        (path.clone(), theirs.clone())
+                                    } else {
+                                        unreachable!()
+                                    };
+                                let (our_path_str, ours_content) =
+                                    if let ConflictFileContent::DeletedByThem {
+                                        path, ours, ..
+                                    } = &result[i]
+                                    {
+                                        (path.clone(), ours.clone())
+                                    } else {
+                                        unreachable!()
+                                    };
+
+                                // Remove the higher index first to keep i valid.
+                                let (lo, hi) = if i < j { (i, j) } else { (j, i) };
+                                result.remove(hi);
+                                result_oids.remove(hi);
+                                result.remove(lo);
+                                result_oids.remove(lo);
+
+                                result.insert(
+                                    lo,
+                                    ConflictFileContent::RenameRename {
+                                        our_path: our_path_str,
+                                        their_path: their_path_str,
+                                        ours: ours_content,
+                                        theirs: theirs_content,
+                                        base: anc_content,
+                                    },
+                                );
+                                result_oids.insert(lo, (None, None));
+                                orphaned_ancestors.remove(&oid);
+                                // Don't advance i; re-examine the slot in case
+                                // another pair was inserted before lo.
+                                continue;
+                            }
+                        }
+                    }
+                }
+                i += 1;
+            }
+        }
+
         Ok(result)
     }
 
@@ -1218,16 +1361,35 @@ impl RepositorySynchronizer {
     }
 
     fn write_resolved_file(repo_path: &Path, file: &ResolvedFileContent) -> Result<()> {
-        let full_path = Self::validate_resolved_path(repo_path, &file.path)?;
-        if file.deleted {
-            if full_path.exists() {
-                fs::remove_file(&full_path)?;
+        match file {
+            ResolvedFileContent::Written { path, content } => {
+                let full = Self::validate_resolved_path(repo_path, path)?;
+                if let Some(p) = full.parent() {
+                    fs::create_dir_all(p)?;
+                }
+                fs::write(&full, content)?;
             }
-        } else {
-            if let Some(parent) = full_path.parent() {
-                fs::create_dir_all(parent)?;
+            ResolvedFileContent::Deleted { path } => {
+                let full = Self::validate_resolved_path(repo_path, path)?;
+                if full.exists() {
+                    fs::remove_file(&full)?;
+                }
             }
-            fs::write(&full_path, &file.content)?;
+            ResolvedFileContent::RenameResolved {
+                chosen_path,
+                discarded_path,
+                content,
+            } => {
+                let chosen = Self::validate_resolved_path(repo_path, chosen_path)?;
+                if let Some(p) = chosen.parent() {
+                    fs::create_dir_all(p)?;
+                }
+                fs::write(&chosen, content)?;
+                let discarded = Self::validate_resolved_path(repo_path, discarded_path)?;
+                if discarded.exists() {
+                    fs::remove_file(&discarded)?;
+                }
+            }
         }
         Ok(())
     }

@@ -145,38 +145,103 @@ pub fn resolve_conflict(
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum ConflictKindPayload {
-    ContentConflict,
-    DeletedByUs,
-    DeletedByThem,
+pub enum ConflictFileContentPayload {
+    Content {
+        path: String,
+        their_path: Option<String>,
+        ours: String,
+        theirs: String,
+        base: Option<String>,
+    },
+    DeletedByUs {
+        path: String,
+        theirs: String,
+        base: Option<String>,
+    },
+    DeletedByThem {
+        path: String,
+        ours: String,
+        base: Option<String>,
+    },
+    RenameRename {
+        our_path: String,
+        their_path: String,
+        ours: String,
+        theirs: String,
+        base: Option<String>,
+    },
 }
 
-impl From<git_sync_lib::ConflictKind> for ConflictKindPayload {
-    fn from(k: git_sync_lib::ConflictKind) -> Self {
-        match k {
-            git_sync_lib::ConflictKind::ContentConflict => Self::ContentConflict,
-            git_sync_lib::ConflictKind::DeletedByUs => Self::DeletedByUs,
-            git_sync_lib::ConflictKind::DeletedByThem => Self::DeletedByThem,
+impl From<git_sync_lib::ConflictFileContent> for ConflictFileContentPayload {
+    fn from(f: git_sync_lib::ConflictFileContent) -> Self {
+        use git_sync_lib::ConflictFileContent as C;
+        match f {
+            C::Content {
+                path,
+                their_path,
+                ours,
+                theirs,
+                base,
+            } => Self::Content {
+                path,
+                their_path,
+                ours,
+                theirs,
+                base,
+            },
+            C::DeletedByUs { path, theirs, base } => Self::DeletedByUs { path, theirs, base },
+            C::DeletedByThem { path, ours, base } => Self::DeletedByThem { path, ours, base },
+            C::RenameRename {
+                our_path,
+                their_path,
+                ours,
+                theirs,
+                base,
+            } => Self::RenameRename {
+                our_path,
+                their_path,
+                ours,
+                theirs,
+                base,
+            },
         }
     }
 }
 
-#[derive(Serialize, Clone, Debug, specta::Type)]
-pub struct ConflictFileContentPayload {
-    pub path: String,
-    /// Their path when different from `path` (rename conflict).
-    pub their_path: Option<String>,
-    pub ours: Option<String>,
-    pub theirs: Option<String>,
-    pub base: Option<String>,
-    pub conflict_kind: ConflictKindPayload,
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ResolvedFilePayload {
+    Written {
+        path: String,
+        content: String,
+    },
+    Deleted {
+        path: String,
+    },
+    RenameResolved {
+        chosen_path: String,
+        discarded_path: String,
+        content: String,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
-pub struct ResolvedFilePayload {
-    pub path: String,
-    pub content: String,
-    pub deleted: bool,
+impl From<ResolvedFilePayload> for git_sync_lib::ResolvedFileContent {
+    fn from(r: ResolvedFilePayload) -> Self {
+        use git_sync_lib::ResolvedFileContent as R;
+        match r {
+            ResolvedFilePayload::Written { path, content } => R::Written { path, content },
+            ResolvedFilePayload::Deleted { path } => R::Deleted { path },
+            ResolvedFilePayload::RenameResolved {
+                chosen_path,
+                discarded_path,
+                content,
+            } => R::RenameResolved {
+                chosen_path,
+                discarded_path,
+                content,
+            },
+        }
+    }
 }
 
 #[tauri::command]
@@ -200,17 +265,7 @@ pub fn get_conflict_files_content(
     let files = syncer
         .get_conflict_files_content()
         .map_err(|e| e.to_string())?;
-    Ok(files
-        .into_iter()
-        .map(|f| ConflictFileContentPayload {
-            path: f.path,
-            their_path: f.their_path,
-            ours: f.ours,
-            theirs: f.theirs,
-            base: f.base,
-            conflict_kind: f.conflict_kind.into(),
-        })
-        .collect())
+    Ok(files.into_iter().map(Into::into).collect())
 }
 
 #[tauri::command]
@@ -221,14 +276,7 @@ pub fn complete_conflict_merge(
     resolved: Vec<ResolvedFilePayload>,
 ) -> Result<(), String> {
     use git_sync_lib::ResolvedFileContent;
-    let entries: Vec<ResolvedFileContent> = resolved
-        .into_iter()
-        .map(|r| ResolvedFileContent {
-            path: r.path,
-            content: r.content,
-            deleted: r.deleted,
-        })
-        .collect();
+    let entries: Vec<ResolvedFileContent> = resolved.into_iter().map(Into::into).collect();
     state
         .lock()
         .unwrap()
